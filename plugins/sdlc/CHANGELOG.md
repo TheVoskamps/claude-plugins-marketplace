@@ -1,5 +1,53 @@
 # sdlc changelog
 
+## 0.103.0 — 2026-11-27
+
+The readiness check traces an issue body against the code, and a
+`ready` verdict is stamped on the issue so that a later check repeats
+only what could have changed. Needs `issues` 0.20.0 or later.
+
+- A full check now includes a trace. For each behavior the body
+  specifies and each acceptance criterion, it reads the code the body
+  names or calls, confirms that names, interfaces and validators behave
+  as the body assumes and that the criterion can pass, and follows any
+  state the change introduces through success, stop and re-run. It runs
+  no command the body spells.
+- A `ready` verdict is recorded as one comment on the issue, headed
+  `## Orchestrate readiness`: a hash of the body and the blocked-by
+  edges, the graded commit of the default branch, the sdlc version, and
+  the files the verdict relied on. Any account's stamp counts.
+- With a stamp whose hash and version match, a later check skips its
+  model-graded part when the default branch has changed none of the
+  stamped files, and otherwise grades only whether that diff breaks the
+  body. It runs in full when the body or a blocked-by edge changed,
+  another sdlc version wrote the stamp, the stamp is missing or
+  unreadable, the stamped commit is not an ancestor of the default
+  branch, or the mechanical check found a gap. The mechanical check
+  itself runs every time.
+- `sdlc-readiness-stamp`, a new executable, owns the stamp. `check <N>`
+  prints `match`, `diff <commit>..<head>` with the stamped files the
+  diff touched and kept, or `full` and the reason. `write <N> --commit
+  <sha> --file <path>...` writes the stamp, adding the body's
+  files-affected paths itself.
+- `write` refuses, writing nothing, unless the working tree is clean
+  and its HEAD, `--commit` and the freshly fetched default branch are
+  one commit. It stores an absolute `--file` path inside the working
+  tree relative to its root, drops one leading `./`, and refuses a path
+  that is absolute outside the working tree or has an empty, `.` or
+  `..` component.
+- The script finds the tracker in `.issues/repo-config.md` whether or
+  not blank lines precede the front matter. Under a Jira tracker
+  `check` prints `full` and `write` writes nothing.
+- `/sdlc:orchestrate-ready` writes the stamp after its final `ready`
+  verdict, once no design question waits on an answer, and does so on
+  a board with no status to set as well. `/sdlc:orchestrate` writes it
+  after a `ready` verdict from a narrowed or full check. Neither writes
+  after a skipped check, and a refused write is reported and leaves the
+  verdict `ready`.
+- `/sdlc:orchestrate-ready` runs the check again after it records that
+  the groomed issue is blocked by another, since that edge is part of
+  what the check graded.
+
 ## 0.102.0 — 2026-11-27
 
 `/sdlc:orchestrate-cleanup` leaves a running agent's work alone. It
