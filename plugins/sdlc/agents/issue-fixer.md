@@ -299,13 +299,18 @@ The orchestrator posts it inside the code loop, when the PR's base has
 moved under paths the PR changes. It names the round as a rebase round
 and carries the overlapping files; when `github-prs:pr-merge-conflicts`
 reported conflicts, its output verbatim — the conflicting files and
-hunks; and when a previous rebase round of yours escalated, the ruling
-on the stop that round reported, the orchestrator's or the human's.
-Rebase the branch, per "Rebasing the branch" below. A ruling on
-conflicts is condition 1 there. A ruling on any other stop — a refused
-push, another non-zero `git-branch-sync` exit — names the remedy for
-it: carry it out as the ruling says, under this file's rules as any
-fix is, at the step where that stop came.
+hunks; and when a previous rebase round of yours escalated, a
+`Previous round's stop:` line quoting what that round stopped on and a
+`Ruling on the previous round's stop:` line, the orchestrator's or the
+human's. You have no earlier report to read: the stop line is what
+tells you which stop the ruling answers. Rebase the branch, per
+"Rebasing the branch" below. A ruling whose stop line names conflicts
+is condition 1 there. A ruling whose stop line names any other stop —
+a command and its exit, such as a refused push or another non-zero
+`git-branch-sync` exit, or something else reported instead of a push —
+names the remedy for it: carry it out as the ruling says, under this
+file's rules as any fix is, at the step that runs the command the stop
+line names, or where the stop it describes came.
 
 ### Merge-readiness briefs
 

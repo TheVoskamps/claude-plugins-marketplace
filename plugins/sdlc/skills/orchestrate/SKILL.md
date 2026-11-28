@@ -710,10 +710,15 @@ You run it yourself, as you run a style-fix round:
    <its output, verbatim — or omit the section when it reports a clean
    trial merge>
 
-   Ruling on the previous round's stop: <the ruling, quoted, on what
-   the previous rebase round escalated — the conflicts it could not
-   resolve, or any other stop it reported — or omit the line on a round
-   no such ruling precedes>
+   Previous round's stop: <what the previous rebase round stopped on,
+   quoted from its report — the conflicts it could not resolve; the
+   command it ran, that command's exit and the stderr line it quoted;
+   or what else it reported instead of a push — or omit the line on a
+   round no ruling precedes>
+
+   Ruling on the previous round's stop: <the ruling, quoted, on the
+   stop the line above names — or omit the line on a round no such
+   ruling precedes>
 
    Rebase per your agent definition. Report back each conflict and what
    settled it, the new head SHA, and what you could not resolve.
@@ -733,8 +738,9 @@ On its return:
 - **Conflicts it could not resolve** — it aborted the rebase and pushed
   nothing. Put the conflicts it quoted to the human as a decision of
   class `rebase-conflict`, per "Putting a decision to the human", then
-  post a new rebase-round brief carrying the human's answer on its
-  `Ruling on the previous round's stop:` line and spawn `issue-fixer`
+  post a new rebase-round brief carrying those conflicts on its
+  `Previous round's stop:` line and the human's answer on its
+  `Ruling on the previous round's stop:` line, and spawn `issue-fixer`
   again.
 - **Exit 13 from `git-branch-sync checkout`** — handle it per "A
   checkout refused because another worktree holds the branch". A
@@ -743,10 +749,11 @@ On its return:
 - **Any other stop** — a refused push, another non-zero
   `git-branch-sync` exit, or anything else it reports instead of a push
   — is an escalation: handle it per "When a teammate escalates". Its
-  re-dispatch is a new rebase-round brief carrying that section's
-  ruling — yours, quoting the sentence that settles the question, or
-  the human's direction — on its `Ruling on the previous round's stop:`
-  line.
+  re-dispatch is a new rebase-round brief carrying the stop, quoted
+  from the report, on its `Previous round's stop:` line, and that
+  section's ruling — yours, quoting the sentence that settles the
+  question, or the human's direction, a bare "retry" included — on its
+  `Ruling on the previous round's stop:` line.
 
 A rebase round does not count against `code-review-max-rounds`. Track
 the number per PR and report it in the Final Report summary.
