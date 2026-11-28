@@ -3,6 +3,10 @@
 Each plugin has its own `CHANGELOG.md`. This file records plugins added
 to, delisted from, or retired from the marketplace.
 
+## 2026-11-27
+
+- Added `memory-tools`.
+
 ## 2026-09-27
 
 - Added `claude-harness-tools`.

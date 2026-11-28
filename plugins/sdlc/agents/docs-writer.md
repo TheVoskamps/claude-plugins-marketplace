@@ -5,6 +5,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 model: fable
 effort: medium
 isolation: worktree
+memory: project
 skills:
   - issue-view
   - github-prs:pr-diff

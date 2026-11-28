@@ -1,5 +1,23 @@
 # sdlc changelog
 
+## 0.105.0 — 2026-11-27
+
+The agents that write a PR record memory again, and nothing in this
+plugin curates it.
+
+- `issue-developer`, `issue-fixer`, `code-documenter`, `style-checker`
+  and `docs-writer` declare `memory: project`. With memory turned on in
+  Claude Code, each reads and writes its own entries under
+  `.claude/agent-memory/`.
+- None of them commits a memory file or copies one anywhere at the end
+  of a run. An entry written inside an agent's worktree is removed with
+  that worktree unless something outside this plugin keeps it: the
+  `memory-tools` plugin, when enabled, records each write as it
+  happens.
+- The `agent-memory-scrubber` agent is removed. No run had spawned it
+  since 0.101.0.
+- The status line no longer has a `memory scrub` phase.
+
 ## 0.104.0 — 2026-11-27
 
 The merge monitor retries a poll that fails on a recoverable error. It

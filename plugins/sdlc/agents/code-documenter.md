@@ -5,6 +5,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 model: opus
 effort: medium
 isolation: worktree
+memory: project
 skills:
   - github-prs:pr-diff
   - git-tools:git-branch-sync

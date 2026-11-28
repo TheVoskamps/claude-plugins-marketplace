@@ -5,6 +5,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch
 model: opus
 effort: medium
 isolation: worktree
+memory: project
 skills:
   - issue-view
   - git-tools:git-branch-create

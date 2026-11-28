@@ -73,7 +73,6 @@ type Phase =
   | "plan"
   | "seed"
   | "develop"
-  | "memory scrub"
   | "merge readiness"
   | "finalizer"
   | "monitor"
@@ -85,7 +84,6 @@ const SPAWN_PHASES = new Map<string, Phase>([
   ["code-documenter", "code loop"],
   ["issue-fixer", "code loop"],
   ["docs-writer", "doc loop"],
-  ["agent-memory-scrubber", "memory scrub"],
   ["pr-merge-readiness", "merge readiness"],
   ["pr-finalizer", "finalizer"],
   ["pr-monitor", "monitor"],

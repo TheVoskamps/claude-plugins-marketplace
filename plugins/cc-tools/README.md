@@ -4,9 +4,8 @@ Tools for running Claude Code itself: launch a session named after the
 repo it runs in, under a named account when you keep more than one,
 with settings layers for this machine, that account, the repo's owner
 and the repo itself merged on top of your global ones; load the global
-rules a session should be working under;
-find out what changed in the harness and in the issues you track; and
-curate the memory your agents write so it stays worth reading.
+rules a session should be working under; and
+find out what changed in the harness and in the issues you track.
 
 ## Why you would want it
 
@@ -37,20 +36,13 @@ Each of these gets worse the longer you leave it:
 - **Claude Code moves faster than you can read its changelog.** Most
   of what ships does not touch any subject you are actually following,
   and the bug you filed six months ago may have quietly closed.
-- **Agent memory rots.** Agents that declare `memory: project` write
-  into `.claude/agent-memory/` as they work, and nothing judges those
-  writes. Entries pile up that restate the code, name a design doc as
-  the source of truth, or narrate finished work — each one
-  misdirecting the next agent that reads the index. An unread memory
-  tree is better than a wrong one.
 
 ## Before it will work
 
 - **`gh`, authenticated.** `cr` resolves the repo's host, owner and
   name through it, and refuses to launch without it. The skills that
   report on upstream Claude Code read `anthropics/claude-code` through
-  it, and memory curation aimed at a PR finds that PR's branch through
-  the `github-prs` plugin, which cc-tools declares as a dependency.
+  it.
 - **`jq`**, if you want `cr`. The resolver at `~/.local/bin/cr` reads
   `claude plugin list --json` through it to find where the enabled
   cc-tools is installed, and the launcher merges the settings layers
@@ -72,11 +64,6 @@ Each of these gets worse the longer you leave it:
   profile is reloaded; only then does `~/.local/bin/cr` take over.
 - **A `CLAUDE.md` in your config directory**, if you want rule-loading
   to have anything to load.
-- **Agents that declare `memory: project`**, if you want anything to
-  curate. With nothing captured — no `.claude/agent-memory/` for the
-  repo route, an empty inbox for the session route — curation reports
-  that there was nothing to grade and stops; that is a valid outcome,
-  not a failure.
 - **A list of topics you care about.** The two skills that report on
   upstream Claude Code take their topics from that list and infer none
   from anywhere else; both seed it from a starter set on their first
@@ -87,10 +74,8 @@ Each of these gets worse the longer you leave it:
   follow under it.
 
 `cc-whats-new` keeps a watermark file, `whats-new.yml`, beside that
-list, which it creates on its first run. The only other state is
-the session inbox described below, which lives under the session
-scratchpad rather than in any repo and dies with the session. Outside
-its own tree the plugin writes the resolver at `~/.local/bin/cr`; the
+list, which it creates on its first run. Outside
+its own tree the plugin also writes the resolver at `~/.local/bin/cr`; the
 merged settings file `cr` builds for each
 launch under `${XDG_STATE_HOME:-~/.local/state}/cc-tools/`, which
 lives only as long as that launch; the config directory's `logs/`,
@@ -364,48 +349,6 @@ under different wording becomes a proposal to rename that topic to the
 broader term instead, carrying its issue numbers over — and that rename
 takes its own yes. Decline everything and no topic changes.
 
-### Curating agent memory
-
-Which route you want depends on whether the memory is in a repo or in
-a session.
-
-`/cc-tools:agent-memory-cleanup` is the one you invoke yourself. It
-grades every entry in `.claude/agent-memory/`, then **acts** — it
-deletes every entry that no longer earns its place,
-moves durable lore out into the nearest governing `CLAUDE.md`, else an
-on-demand `docs/rules/*.md` routed from it, else the root `CLAUDE.md`,
-and never into a README, keeps what has no home in the repo, and
-repairs the `MEMORY.md` indexes and the wikilinks between entries. It
-is not a read-only report handed to someone else to apply.
-
-The argument picks which tree it curates, and how much it asks:
-
-- **With none**, it curates the tree you are sitting in. It confirms
-  each move with you, showing the destination file and the text it
-  would add, and leaves its edits uncommitted for you to review. An
-  entry git does not track yet is staged before it is deleted, so
-  `git restore` brings back any entry the pass removed.
-- **With a PR number**, it checks out that PR's branch, applies every
-  move without asking, and commits and pushes the result onto the PR,
-  or leaves the branch untouched when the pass changed nothing.
-
-Deletions are confirmed in neither mode. In the PR mode the commit is
-the only undo, and it restores only what the branch already held: an
-entry that was never committed is gone once it is deleted, and nothing
-checks for one. So before you run the PR mode, make sure every memory
-entry is committed on that branch.
-
-The other route is the **session inbox**, for agents that run under
-`isolation: worktree`. Their `.claude/agent-memory/` resolves inside a
-throwaway worktree and dies with it, so the work has to leave before
-cleanup: a capture step copies the entries that outlive the run into a
-per-branch inbox under the session scratchpad, and a curation step
-grades them and writes the survivors into the repo. Neither is a
-command you can type. An agent runs the capture step at the end of its
-own run, and an agent curating a branch runs the curation step
-afterwards, so the route does something only where your agents are
-written to run both.
-
 ## What it deliberately does not do
 
 - **`cr` does not validate a layer's keys.** It refuses what `jq`
@@ -456,10 +399,3 @@ written to run both.
   suggester reads only the global rung of your Claude configuration and
   never a repo-local `.claude/settings.json`: a candidate derived from
   one repo's settings would have nowhere repo-local to be written.
-- **Curation is destructive and has no undo of its own.** It relies on
-  git, or on your review of an uncommitted tree. The inbox is not a
-  repository at all: an entry the curator neither transfers nor
-  deletes is simply lost at the end of the session.
-- **Nothing here migrates prose that is already in place.** Curation
-  governs the entries in front of it. A constraint an earlier run
-  transferred stays where that run put it, a README included.

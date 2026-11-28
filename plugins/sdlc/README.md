@@ -485,6 +485,13 @@ throwaway worktree under `.claude/worktrees/`, locked while the agent
 runs. Those worktrees stay in place during a run and are removed by
 the cleanup.
 
+`issue-developer`, `issue-fixer`, `code-documenter`, `style-checker`
+and `docs-writer` declare `memory: project`, so with memory turned on
+in Claude Code each reads and writes its own entries under
+`.claude/agent-memory/` in its worktree. The plugin commits none of
+them and copies none out, so an entry is removed with the worktree
+unless something outside the plugin recorded it.
+
 `theorem-generator` runs at a reasoning tier the reviewer picks per
 round. You can name one yourself: `--generator-effort` on
 `/sdlc:git-review-pr`, or a tier you state during an orchestrate run,
@@ -592,7 +599,7 @@ plugin for that name finds them all.
 | `issues` | The issue verbs, `issue-view` for the readiness check, and `issue-comment` for the readiness stamp. Version 0.20.0 or later, the first whose `issue-comment` takes `--marker`. |
 | `git-tools` | Branch creation, branch sync, the branch-name grammar and the default-branch lookup. |
 | `github-prs` | Every PR read and write. |
-| `cc-tools` | `claude-home`, which prints Claude Code's config directory, and the `agent-memory-inbox-cleanup` skill, which the `agent-memory-scrubber` agent runs when you spawn it yourself. Version 0.12.0 or later, the first with `claude-home`. |
+| `cc-tools` | `claude-home`, which prints Claude Code's config directory. Version 0.12.0 or later, the first with `claude-home`. |
 
 `yq`, the mikefarah build at v4 or later, comes with no plugin and is
 installed on the machine. Without it `sdlc-decision` exits with an
