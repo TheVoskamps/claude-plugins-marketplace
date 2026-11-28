@@ -1,19 +1,37 @@
 #!/usr/bin/env bash
-# Post one comment on one issue, the body read from a file. The contract is
+# Post one comment on one issue, the body read from a file; with --marker,
+# edit the issue's marker comment instead, posting one only when it has none,
+# or, with --read, print that comment's body. The contract is
 # plugins/issues/skills/issue-comment/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/issues-common.sh"
 
-usage="usage: issue-comment <issue> --body-file PATH"
+usage="usage: issue-comment <issue> --body-file PATH [--marker HEADER]
+       issue-comment <issue> --read --marker HEADER"
 number_arg=
 body_file=
+has_body_file=
+marker=
+has_marker=
+read_mode=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --body-file)
       [ "$#" -ge 2 ] || iss_usage_die "$usage"
       body_file=$2
+      has_body_file=1
       shift 2
+      ;;
+    --marker)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || iss_usage_die "$usage"
+      marker=$2
+      has_marker=1
+      shift 2
+      ;;
+    --read)
+      read_mode=1
+      shift
       ;;
     --*) iss_usage_die "$usage" ;;
     *)
@@ -23,22 +41,83 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
-[ -n "$number_arg" ] && [ -n "$body_file" ] || iss_usage_die "$usage"
+[ -n "$number_arg" ] || iss_usage_die "$usage"
+if [ -n "$read_mode" ]; then
+  [ -n "$has_marker" ] && [ -z "$has_body_file" ] || iss_usage_die "$usage"
+else
+  [ -n "$body_file" ] || iss_usage_die "$usage"
+fi
+case "$marker" in
+  *$'\n'*) iss_usage_die "$usage" ;;
+esac
 
 iss_init "$number_arg"
 iss_operand "$number_arg"
 ref=$(iss_ref "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER")
 
-case "$body_file" in
-  /*) ;;
-  *) [ -f "$body_file" ] || body_file="$ISS_REPO_ROOT/$body_file" ;;
-esac
-[ -f "$body_file" ] || iss_die "body file \`$body_file\` does not exist"
-[ -r "$body_file" ] || iss_die "body file \`$body_file\` is not readable"
-grep -q '[^[:space:]]' "$body_file" || iss_die "body file \`$body_file\` is empty or whitespace-only; no comment posted"
+if [ -z "$read_mode" ]; then
+  case "$body_file" in
+    /*) ;;
+    *) [ -f "$body_file" ] || body_file="$ISS_REPO_ROOT/$body_file" ;;
+  esac
+  [ -f "$body_file" ] || iss_die "body file \`$body_file\` does not exist"
+  [ -r "$body_file" ] || iss_die "body file \`$body_file\` is not readable"
+  grep -q '[^[:space:]]' "$body_file" || iss_die "body file \`$body_file\` is empty or whitespace-only; no comment posted"
+  if [ -n "$has_marker" ]; then
+    first_line=$(head -n 1 "$body_file")
+    [ "${first_line%$'\r'}" = "$marker" ] ||
+      iss_die "body file \`$body_file\` does not open with the marker line \`$marker\`; no comment posted"
+  fi
+fi
 
 iss_lookup "$OP_HOST" "$OP_OWNER" "$OP_REPO" "$OP_NUMBER" "title"
 title=$(iss_jq .title)
+
+# The id of the most recent comment on the issue whose first line, a trailing
+# carriage return dropped, is the marker, whoever wrote it; empty when none is.
+# GitHub lists an issue's comments oldest first. The jq program reads the
+# paginated output whether gh prints it as one array or as one array per page.
+marker_id=
+if [ -n "$has_marker" ]; then
+  comments=$(iss_rest "$OP_HOST" "repos/$OP_OWNER/$OP_REPO/issues/$OP_NUMBER/comments" --paginate) ||
+    iss_die "could not list the comments on issue \`$ref\`"
+  marker_id=$(printf '%s' "$comments" |
+    jq -r --arg m "$marker" '.[] | select((.body // "" | split("\n")[0] | rtrimstr("\r")) == $m) | .id' |
+    tail -n 1) ||
+    iss_die "could not read the comments on issue \`$ref\`"
+fi
+
+if [ -n "$read_mode" ]; then
+  [ -n "$marker_id" ] || exit 0
+  iss_rest "$OP_HOST" "repos/$OP_OWNER/$OP_REPO/issues/comments/$marker_id" --jq .body ||
+    iss_die "could not read comment $marker_id on issue \`$ref\`"
+  exit 0
+fi
+
+if [ -n "$marker_id" ]; then
+  payload=$(mktemp "${TMPDIR:-/tmp}/issue-comment.XXXXXX")
+  jq -Rs '{body: .}' "$body_file" >"$payload" || {
+    rm -f "$payload"
+    iss_die "could not encode body file \`$body_file\`"
+  }
+  iss_rest "$OP_HOST" "repos/$OP_OWNER/$OP_REPO/issues/comments/$marker_id" -X PATCH --input "$payload" >/dev/null
+  rc=$?
+  rm -f "$payload"
+  [ "$rc" -eq 0 ] || iss_die "editing comment $marker_id on issue \`$ref\` failed"
+
+  # Re-read the comment and confirm it carries the file's text, trailing
+  # whitespace and carriage returns aside.
+  reread=$(iss_rest "$OP_HOST" "repos/$OP_OWNER/$OP_REPO/issues/comments/$marker_id") ||
+    iss_err_write_not_landed comment "$ref" "comment $marker_id" "no such comment"
+  norm='gsub("\r"; "") | sub("\\s+$"; "")'
+  want=$(jq -Rs "$norm" "$body_file")
+  got=$(printf '%s' "$reread" | jq ".body // \"\" | $norm")
+  [ "$got" = "$want" ] ||
+    iss_err_write_not_landed comment "$ref" "the body file's text" "a different body on comment $marker_id"
+  comment_url=$(printf '%s' "$reread" | jq -r '.html_url // empty')
+  printf 'Updated the comment on issue %s "%s".\n%s\n' "$ref" "$title" "$comment_url"
+  exit 0
+fi
 
 comment_url=$(gh issue comment "$OP_NUMBER" --repo "$(iss_repo_arg "$OP_HOST" "$OP_OWNER" "$OP_REPO")" \
   --body-file "$body_file") ||

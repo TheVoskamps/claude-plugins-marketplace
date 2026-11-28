@@ -118,6 +118,8 @@ issue it finds.
 | `/issue-list [<owner> \| <owner>/<repo>] [--project <number\|url>] --status <name> [--view <name\|number\|url>] [--assignee <login>]... [--unassigned] [--limit <n>]` | List a project board's open issues at one status, in the board's position order or a view's sort: the configured board in one repository, or with `--project` or a URL an owner's board across its repositories or in one |
 | `/issue-update <issue>` | Change a title, body, labels or assignees |
 | `/issue-comment <issue> --body-file PATH` | Add a comment, body read from a file |
+| `/issue-comment <issue> --body-file PATH --marker <header>` | Edit the issue's marker comment, the most recent one whose first line is `<header>`, whoever wrote it, to the file's text, or post the file when there is none; the file's first line must be `<header>` |
+| `/issue-comment <issue> --read --marker <header>` | Print the marker comment's body, or nothing when there is none |
 | `/issue-close <issue> [--reason <reason>]` | Close an issue, optionally commenting first, and optionally set the close reason: completed, not planned, or a duplicate of a named issue |
 | `/issue-set-status <issue> <status>` | Set the status field on the issue's project item |
 | `/issue-set-priority <issue> <value>` | Set the priority field |

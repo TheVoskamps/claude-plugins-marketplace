@@ -1,0 +1,334 @@
+#!/usr/bin/env bash
+#
+# sdlc-readiness-stamp -- read and write an issue's readiness stamp, the
+# record of the last `ready` verdict sdlc:orchestrate-readiness reached on
+# it, and decide how much of the check a re-run needs.
+#
+# The stamp is the most recent comment on the issue whose first line is
+# `## Orchestrate readiness`, whoever wrote it, followed by one fenced
+# `yaml` block of these keys:
+#   hash:          the SHA-256, in lowercase hex, of the issue's body as
+#                  issue-view prints it after its `Body:` line, trailing
+#                  newlines dropped, then one newline, one NUL byte, and
+#                  each blocked-by issue's `<host>/<owner>/<repo>#<N>`
+#                  reference, lowercased, one per line, sorted and
+#                  unique under LC_ALL=C
+#   commit:        the graded commit of the remote default branch
+#   sdlc-version:  the version in this plugin's plugin.json
+#   files:         a block list, `  - <path>` per line, of repo-relative
+#                  paths, sorted and unique
+# Any other text in the comment is ignored. A comment lacking a key, or
+# whose hash is not 64 hex digits or whose commit is not 40, is no
+# readable stamp.
+#
+# The issue is read by running `issue-view <N>` from PATH, and the stamp
+# through `issue-comment <N> --read --marker` and `issue-comment <N>
+# --body-file <file> --marker`, both of the issues plugin. The remote
+# default branch is the one `git-default-branch`, of git-tools, names; it
+# is fetched from origin into refs/remotes/origin/<branch> on every run
+# but a Jira one, and that fetch is the only ref either mode moves. The
+# tracker is Jira when the `issues:` front-matter key of the repository's
+# .issues/repo-config.md reads `Jira`, in any case. Runs under the bash
+# 3.2 macOS ships.
+#
+# Usage: sdlc-readiness-stamp check <N>
+#        sdlc-readiness-stamp write <N> --commit <sha> [--file <path>]...
+#
+# <N> is an issue number in this repository, with or without a leading
+# `#`.
+#
+# check writes nothing to the issue and prints one verdict, its first line
+# naming it:
+#   match                 the stamp's hash and sdlc-version match, and the
+#                         diff from its commit to the remote default
+#                         branch touches no file it lists
+#   diff <commit>..<head> the hash and version match, and that diff
+#                         touches a listed file; one `touched <path>`
+#                         line follows per listed file it touches, then
+#                         one `kept <path>` line per listed file it
+#                         leaves alone
+#   full <reason>         the hash or version differs, there is no
+#                         readable stamp, the stamped commit is not an
+#                         ancestor of the remote default branch, or the
+#                         tracker is Jira
+# A file renamed in the diff counts as touched under its old and its new
+# path.
+#
+# write composes the stamp from the issue as issue-view prints it now,
+# with --commit as its commit and, as its files, every --file path and
+# every path of the body's `## Files affected (floor)` section, and posts
+# it, editing the existing stamp when there is one. A --file path inside
+# the working tree given as an absolute path is stored relative to its
+# root, and one leading `./` is dropped from every --file path. It
+# refuses, writing nothing, when the tracker is Jira, the working tree has
+# a change or an untracked file, a --file path is absolute outside the
+# working tree or has an empty, `.` or `..` component, --commit names
+# no commit, or HEAD, --commit and the fetched remote default branch are
+# not one commit.
+#
+# Exit statuses:
+#   0  check printed its verdict, or write wrote the stamp; write's stdout
+#      is issue-comment's
+#   1  a command the script ran failed, or issue-view, issue-comment or
+#      git-default-branch is not on PATH
+#   2  a usage error; nothing was read
+#   3  write refused; one line on stdout says why, and nothing was written
+set -uo pipefail
+
+PROGRAM=${0##*/}
+USAGE="usage: $PROGRAM check <N> | $PROGRAM write <N> --commit <sha> [--file <path>]..."
+MARKER='## Orchestrate readiness'
+
+# fail <status> <message> -- print the message on stderr, prefixed with
+# the program name, and exit with the status.
+fail() {
+  printf '%s: %s\n' "$PROGRAM" "$2" >&2
+  exit "$1"
+}
+
+# refuse <reason> -- print write's refusal on stdout and exit 3.
+refuse() {
+  printf 'refused: %s; no stamp was written\n' "$1"
+  exit 3
+}
+
+[ "$#" -ge 2 ] || fail 2 "$USAGE"
+mode=$1
+arg=$2
+shift 2
+commit_arg=''
+files=()
+case "$mode" in
+  check) [ "$#" -eq 0 ] || fail 2 "$USAGE" ;;
+  write)
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --commit | --file)
+          [ "$#" -ge 2 ] && [ -n "$2" ] || fail 2 "$1 needs a value; $USAGE"
+          case "$2" in
+            *$'\n'*) fail 2 "$1 takes no value holding a newline" ;;
+          esac
+          if [ "$1" = --commit ]; then commit_arg=$2; else files+=("${2#./}"); fi
+          shift 2
+          ;;
+        *) fail 2 "unknown argument: $1; $USAGE" ;;
+      esac
+    done
+    [ -n "$commit_arg" ] || fail 2 "write needs --commit; $USAGE"
+    ;;
+  *) fail 2 "$USAGE" ;;
+esac
+issue=${arg#\#}
+case "$issue" in
+  '' | *[!0-9]*) fail 2 "not an issue number: $arg" ;;
+esac
+
+root=$(git rev-parse --show-toplevel) || fail 1 "not inside a git working tree"
+
+# The tracker, from an inline parse of the one front-matter key; blank
+# lines before the opening `---` are skipped, as the issues plugin does.
+tracker=''
+config=$root/.issues/repo-config.md
+if [ -f "$config" ]; then
+  tracker=$(awk '
+    !started { if ($0 ~ /^[ \t]*$/) next; if ($0 == "---") { started = 1; next } exit }
+    $0 == "---" { exit }
+    sub(/^issues:[ \t]*/, "") { sub(/[ \t]+#.*$/, ""); gsub(/["\x27]/, ""); print; exit }
+  ' "$config" | tr '[:upper:]' '[:lower:]') || fail 1 "could not read the issues: key of $config"
+fi
+if [ "$tracker" = jira ]; then
+  [ "$mode" = check ] && {
+    printf 'full the tracker is Jira, which carries no stamp\n'
+    exit 0
+  }
+  refuse "the tracker is Jira, which carries no stamp"
+fi
+
+for tool in issue-view issue-comment git-default-branch; do
+  command -v "$tool" >/dev/null 2>&1 || fail 1 "$tool is not on PATH"
+done
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || fail 1 "cannot resolve the script's directory"
+version=$(jq -r '.version // empty' "$script_dir/../.claude-plugin/plugin.json") && [ -n "$version" ] ||
+  fail 1 "could not read the sdlc version from $script_dir/../.claude-plugin/plugin.json"
+
+if [ "$mode" = write ]; then
+  dirty=$(git status --porcelain) || fail 1 "git status failed"
+  [ -z "$dirty" ] || refuse "the working tree has uncommitted changes or untracked files"
+
+  # Each --file made repo-relative: an absolute path inside the working
+  # tree loses the tree's root, and any other absolute path, or one with
+  # an empty, `.` or `..` component, is refused.
+  if [ "${#files[@]}" -gt 0 ]; then
+    rel=()
+    for f in "${files[@]}"; do
+      case "$f" in
+        "$root"/*) f=${f#"$root"/} ;;
+      esac
+      case "/$f/" in
+        //* | */./* | */../* | *//*) refuse "--file $f is not a repo-relative path inside the working tree" ;;
+      esac
+      rel+=("$f")
+    done
+    files=("${rel[@]}")
+  fi
+fi
+
+branch=$(git-default-branch) || fail 1 "git-default-branch named no default branch"
+git fetch --quiet origin "+refs/heads/$branch:refs/remotes/origin/$branch" ||
+  fail 1 "git fetch origin $branch failed"
+head=$(git rev-parse --verify --quiet "refs/remotes/origin/$branch^{commit}") ||
+  fail 1 "origin/$branch names no commit after the fetch"
+
+if [ "$mode" = write ]; then
+  commit=$(git rev-parse --verify --quiet "$commit_arg^{commit}") ||
+    refuse "--commit $commit_arg names no commit in this clone"
+  here=$(git rev-parse --verify HEAD) || fail 1 "git rev-parse HEAD failed"
+  [ "$here" = "$commit" ] && [ "$commit" = "$head" ] ||
+    refuse "HEAD ($here), --commit ($commit) and origin/$branch ($head) are not one commit"
+fi
+
+view=$(issue-view "$issue") || fail 1 "issue-view $issue failed"
+
+# The repository the issue is in, from the URL on issue-view's second line.
+url=$(awk 'NR == 2 { sub(/\r$/, ""); print; exit }' <<<"$view") ||
+  fail 1 "awk failed reading the issue URL"
+url_re='^https://([^/]+)/([^/]+)/([^/]+)/issues/[0-9]+$'
+[[ $url =~ $url_re ]] || fail 1 "issue-view $issue printed no issue URL on its second line"
+host=${BASH_REMATCH[1]}
+owner=${BASH_REMATCH[2]}
+repo=${BASH_REMATCH[3]}
+
+body=$(awk 'f { print } !f && $0 == "Body:" { f = 1 }' <<<"$view") ||
+  fail 1 "awk failed reading the issue body"
+
+# Each `  - <reference> <title>` line of the `Blocked by:` section, the
+# reference made canonical: `#N` in the issue's repository, `repo#N` under
+# its owner, `owner/repo#N` on its host.
+refs=$(awk -v h="$host" -v o="$owner" -v r="$repo" '
+  { sub(/\r$/, "") }
+  $0 == "Body:" { exit }
+  $0 == "Blocked by:" { sec = 1; next }
+  sec && $0 == "" { exit }
+  sec && /^  - / {
+    ref = $2; n = split(ref, p, "/")
+    if (ref ~ /^#/) ref = h "/" o "/" r ref
+    else if (n == 1) ref = h "/" o "/" ref
+    else if (n == 2) ref = h "/" ref
+    print tolower(ref)
+  }
+' <<<"$view" | LC_ALL=C sort -u) || fail 1 "awk or sort failed reading the blocked-by references"
+
+# hash_input -- print the bytes the stamp's hash covers.
+hash_input() {
+  printf '%s\n' "$body"
+  printf '\0'
+  [ -z "$refs" ] || printf '%s\n' "$refs"
+}
+if command -v sha256sum >/dev/null 2>&1; then
+  hash=$(hash_input | sha256sum) || fail 1 "sha256sum failed"
+else
+  hash=$(hash_input | shasum -a 256) || fail 1 "shasum -a 256 failed"
+fi
+hash=${hash%% *}
+
+if [ "$mode" = write ]; then
+  # The paths of the body's files-affected section, fenced blocks skipped.
+  listed=$(awk '
+    { sub(/\r$/, "") }
+    match($0, /^[ \t]*(```+|~~~+)/) {
+      m = substr($0, RSTART, RLENGTH); sub(/^[ \t]*/, "", m)
+      if (!fence) { fence = 1; fch = substr(m, 1, 1); flen = length(m); next }
+      if (substr(m, 1, 1) == fch && length(m) >= flen) { fence = 0; next }
+    }
+    fence { next }
+    /^## / { h = $0; sub(/[ \t]+$/, "", h); sec = (h == "## Files affected (floor)"); next }
+    sec && /^- `[^`]+` \((new|update|delete)\)[ \t]*$/ { p = $0; sub(/^- `/, "", p); sub(/`.*$/, "", p); sub(/^\.\//, "", p); print p }
+  ' <<<"$body") || fail 1 "awk failed reading the files-affected section"
+  [ "${#files[@]}" -eq 0 ] || listed=$(printf '%s\n' "${files[@]}" "$listed") || fail 1 "printf failed joining the --file paths"
+  all=$(awk 'length' <<<"$listed" | LC_ALL=C sort -u) || fail 1 "awk or sort failed listing the stamp's files"
+
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/sdlc-readiness-stamp.XXXXXX") || fail 1 "mktemp failed"
+  {
+    printf '%s\n\n```yaml\nhash: %s\ncommit: %s\nsdlc-version: %s\nfiles:\n' "$MARKER" "$hash" "$commit" "$version" &&
+      { [ -z "$all" ] || awk '{ print "  - " $0 }' <<<"$all"; } &&
+      printf '```\n'
+  } >"$tmp/stamp.md" || {
+    rm -rf "$tmp"
+    fail 1 "could not compose the stamp"
+  }
+  issue-comment "$issue" --body-file "$tmp/stamp.md" --marker "$MARKER"
+  rc=$?
+  rm -rf "$tmp"
+  [ "$rc" -eq 0 ] || fail 1 "issue-comment $issue --marker failed"
+  exit 0
+fi
+
+stamp=$(issue-comment "$issue" --read --marker "$MARKER") || fail 1 "issue-comment $issue --read failed"
+[ -n "$stamp" ] || {
+  printf 'full the issue carries no stamp\n'
+  exit 0
+}
+
+# The stamp's keys, one `<key><TAB><value>` line each, and `file<TAB><path>`
+# per files entry, from its first fenced `yaml` block.
+fields=$(awk '
+  { sub(/\r$/, "") }
+  !in_block && $0 == "```yaml" { in_block = 1; next }
+  in_block && /^```/ { exit }
+  !in_block { next }
+  /^(hash|commit|sdlc-version):/ { k = $0; sub(/:.*$/, "", k); v = $0; sub(/^[^:]*:[ \t]*/, "", v); sub(/[ \t]+$/, "", v); print k "\t" v; next }
+  /^files:[ \t]*$/ { print "files\t"; lst = 1; next }
+  lst && /^  - / { v = $0; sub(/^  - /, "", v); print "file\t" v; next }
+  { lst = 0 }
+' <<<"$stamp") || fail 1 "awk failed reading the stamp's yaml block"
+s_hash=$(awk -F '\t' '$1 == "hash" { print $2; exit }' <<<"$fields") || fail 1 "awk failed reading the stamp's hash"
+s_commit=$(awk -F '\t' '$1 == "commit" { print $2; exit }' <<<"$fields") || fail 1 "awk failed reading the stamp's commit"
+s_version=$(awk -F '\t' '$1 == "sdlc-version" { print $2; exit }' <<<"$fields") ||
+  fail 1 "awk failed reading the stamp's sdlc-version"
+s_files=$(awk -F '\t' '$1 == "file" { print $2 }' <<<"$fields") || fail 1 "awk failed reading the stamp's files"
+s_has_files=$(awk -F '\t' '$1 == "files" { print "yes"; exit }' <<<"$fields") ||
+  fail 1 "awk failed reading the stamp's files key"
+if ! [[ $s_hash =~ ^[0-9a-f]{64}$ ]] || ! [[ $s_commit =~ ^[0-9a-f]{40}$ ]] || [ -z "$s_version" ] ||
+  [ -z "$s_has_files" ]; then
+  printf 'full the stamp is unreadable\n'
+  exit 0
+fi
+
+if [ "$s_hash" != "$hash" ]; then
+  printf 'full the body or a blocked-by edge changed since the stamp\n'
+  exit 0
+fi
+if [ "$s_version" != "$version" ]; then
+  printf 'full the stamp was graded by sdlc %s, not %s\n' "$s_version" "$version"
+  exit 0
+fi
+if ! git cat-file -e "$s_commit^{commit}" 2>/dev/null || ! git merge-base --is-ancestor "$s_commit" "$head" 2>/dev/null; then
+  printf 'full the stamped commit %s is not an ancestor of origin/%s\n' "$s_commit" "$branch"
+  exit 0
+fi
+
+# Every path the diff touches, a rename's old and new path both.
+changed=$(git diff --name-status -z -M "$s_commit" "$head" | tr '\0' '\n' | awk '
+  /^[RC][0-9]*$/ { take = 2; next }
+  take == 0 && /^[A-Z][0-9]*$/ { take = 1; next }
+  take > 0 { print; take-- }
+') || fail 1 "git diff $s_commit $head failed"
+
+touched=''
+kept=''
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  grep -Fxq -- "$f" <<<"$changed"
+  case $? in
+    0) touched=$touched"touched $f"$'\n' ;;
+    1) kept=$kept"kept $f"$'\n' ;;
+    *) fail 1 "grep failed matching $f against the diff" ;;
+  esac
+done <<<"$s_files"
+
+if [ -z "$touched" ]; then
+  printf 'match\n'
+  exit 0
+fi
+printf 'diff %s..%s\n%s%s' "$s_commit" "$head" "$touched" "$kept"

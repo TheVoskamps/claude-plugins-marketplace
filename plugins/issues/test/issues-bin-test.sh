@@ -1435,6 +1435,52 @@ printf 'Looks good.\n' >"$CASE_DIR/repo/body.md"
 run issue-comment 2 --body-file body.md
 expect "issue-comment: posted" 0 "Commented on issue #2 \"Widget issue 2\"." "#issuecomment-"
 
+# --marker: posting the first marker comment, editing the most recent one
+# whoever wrote it, and reading it back. Comment 500 is an older marker
+# comment, 501 a newer one hubot wrote, 502 a comment on another issue
+# carrying the marker, and 503 one whose marker line sits below its first.
+new_case "$CONFIG_MAIN"
+MARK='## Orchestrate readiness'
+run issue-comment 3 --read --marker "$MARK"
+check "$RC:$OUT" "0:" "issue-comment --read: no marker comment prints nothing"
+printf '%s\nfirst\n' "$MARK" >"$CASE_DIR/repo/mark1.md"
+run issue-comment 3 --body-file mark1.md --marker "$MARK"
+expect "issue-comment --marker: no marker comment posts one" 0 "Commented on issue #3 \"Widget issue 3\"." "#issuecomment-"
+check "$(state '[.comments[] | select(.number == 3)] | length')" 1 "issue-comment --marker: one comment posted"
+run issue-comment 3 --read --marker "$MARK"
+check "$RC:$OUT" "0:$MARK${ISS_NL}first" "issue-comment --read: prints the posted marker comment"
+jq --arg m "$MARK" '.comments = {
+  "500": {"repo": "acme/widgets", "number": 4, "body": ($m + "\nolder\n"), "user": "octocat"},
+  "501": {"repo": "acme/widgets", "number": 4, "body": ($m + "\r\nnewer\r\n"), "user": "hubot"},
+  "502": {"repo": "acme/widgets", "number": 5, "body": ($m + "\nelsewhere\n"), "user": "hubot"},
+  "503": {"repo": "acme/widgets", "number": 4, "body": ("preamble\n" + $m + "\n"), "user": "hubot"}}' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.next" && mv "$CASE_DIR/state.next" "$CASE_DIR/state.json"
+run issue-comment 4 --read --marker "$MARK"
+check "$RC:$OUT" "0:$MARK${ISS_NL}newer" "issue-comment --read: the most recent marker comment, a CRLF first line matched"
+printf '%s\nsecond\n' "$MARK" >"$CASE_DIR/repo/mark2.md"
+run issue-comment 4 --body-file mark2.md --marker "$MARK"
+expect "issue-comment --marker: edits the newest marker comment" 0 \
+  "Updated the comment on issue #4 \"Widget issue 4\"." "https://github.com/acme/widgets/issues/4#issuecomment-501"
+check "$(state '.comments["501"].body')" "$MARK${ISS_NL}second" "issue-comment --marker: hubot's comment edited"
+check "$(state '.comments["501"].user')" hubot "issue-comment --marker: the comment keeps its author"
+check "$(state '.comments["500"].body')" "$MARK${ISS_NL}older" "issue-comment --marker: the older marker comment untouched"
+check "$(state '.comments["502"].body')" "$MARK${ISS_NL}elsewhere" "issue-comment --marker: another issue's comment untouched"
+check "$(state '[.comments[] | select(.number == 4)] | length')" 3 "issue-comment --marker: an edit posts no comment"
+printf 'other heading\n%s\n' "$MARK" >"$CASE_DIR/repo/nomark.md"
+run issue-comment 4 --body-file nomark.md --marker "$MARK"
+expect "issue-comment --marker: a body not opening with the marker refused" 1 "does not open with the marker line"
+check "$(state '.comments["501"].body')" "$MARK${ISS_NL}second" "issue-comment --marker: nothing edited for a refused body"
+run issue-comment 4 --read
+expect "issue-comment --read without --marker: usage" 2 "usage: issue-comment"
+run issue-comment 4 --read --marker "$MARK" --body-file mark2.md
+expect "issue-comment --read with --body-file: usage" 2 "usage: issue-comment"
+run issue-comment 4 --read --marker "$MARK" --body-file ""
+expect "issue-comment --read with an empty --body-file: usage" 2 "usage: issue-comment"
+run issue-comment 4 --body-file mark2.md --marker ""
+expect "issue-comment --marker with an empty header: usage" 2 "usage: issue-comment"
+run issue-comment 50 --read --marker "$MARK"
+expect "issue-comment --read on a pull request refused" 1 "pull request"
+
 run issue-close 2 --comment "Done here; fixes #7 and Resolves #8."
 expect "issue-close: comment then close, closing-keyword note" 0 \
   "Closed issue #2 \"Widget issue 2\"." "comment: posted" "state:   CLOSED" \
@@ -2153,6 +2199,13 @@ for call in "issue-set-status 2 Done" "issue-set-priority 3 Low" "issue-set-size
     *) expect "${call%% *}: a dropped write exits non-zero" 1 "the write did not land" ;;
   esac
 done
+printf 'MARK\nnew\n' >"$CASE_DIR/repo/mark.md"
+run issue-comment 3 --body-file mark.md --marker MARK
+expect "issue-comment --marker: a dropped post exits non-zero" 1 "the write did not land"
+jq '.comments = {"500": {"repo": "acme/widgets", "number": 3, "body": "MARK\nold\n", "user": "hubot"}}' \
+  "$CASE_DIR/state.json" >"$CASE_DIR/state.next" && mv "$CASE_DIR/state.next" "$CASE_DIR/state.json"
+run issue-comment 3 --body-file mark.md --marker MARK
+expect "issue-comment --marker: a dropped edit exits non-zero" 1 "the write did not land"
 unset FAKE_GH_DROP_WRITES
 
 echo

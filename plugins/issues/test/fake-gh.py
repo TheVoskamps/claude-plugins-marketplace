@@ -44,13 +44,14 @@ none; a repo, node or comment looked up on another host than its own does not
 resolve, so a script that drops the host fails the verb itself rather than
 only a call-log check.
 
-The issues-discover lookups, board reads and the closing pull requests each
-keep further state, described where that state is read.
+The issues-discover lookups, board reads, issue comments and the closing pull
+requests each keep further state, described where that state is read.
 """
 import base64
 import json
 import os
 import re
+import subprocess
 import sys
 
 STATE_PATH = os.environ["FAKE_GH_STATE"]
@@ -575,7 +576,68 @@ def curl(state, args):
     print(json.dumps({"number": issue["number"], "body": issue.get("body", "")}))
 
 
+def comment_json(state, host, cid, comment):
+    """One issue comment as the REST API returns it."""
+    nwo, number = comment["repo"], comment["number"]
+    return {"id": int(cid), "body": comment["body"], "user": {"login": comment.get("user", state["user"])},
+            "html_url": "%s#issuecomment-%s" % (issue_url(state, nwo, number), cid),
+            "issue_url": "https://api.%s/repos/%s/issues/%d" % (host, nwo, number)}
+
+
+def comments_api(state, host, path, args):
+    """The REST comment calls: `repos/<nwo>/issues/<N>/comments` lists an
+    issue's comments oldest first, as one page whatever --paginate says, and
+    `repos/<nwo>/issues/comments/<id>` reads one comment, or with `-X PATCH
+    --input <file>` sets its body to the file's JSON "body", whoever wrote
+    it. A state comment's "user" is its author, state["user"] when absent. As
+    gh does, --jq runs the expression over the response and prints a string
+    result raw."""
+    method, input_file, jq_expr = "GET", None, None
+    i = 0
+    while i < len(args):
+        if args[i] == "-X":
+            method = args[i + 1]
+        elif args[i] == "--input":
+            input_file = args[i + 1]
+        elif args[i] == "--jq":
+            jq_expr = args[i + 1]
+        elif args[i] == "--paginate":
+            i += 1
+            continue
+        i += 2
+    parts = path.split("/")
+    nwo = "/".join(parts[1:3])
+    if not repo_on(state, nwo, host):
+        fail("Not Found (HTTP 404)")
+    comments = state.setdefault("comments", {})
+    if parts[4] != "comments":
+        if by_number(state, nwo, parts[4]) is None:
+            fail("Not Found (HTTP 404)")
+        out = [comment_json(state, host, cid, c) for cid, c in sorted(comments.items(), key=lambda e: int(e[0]))
+               if c["repo"] == nwo and c["number"] == int(parts[4])]
+    else:
+        cid = parts[5]
+        comment = comments.get(cid)
+        if comment is None or comment["repo"] != nwo:
+            fail("Not Found (HTTP 404)")
+        if method == "PATCH":
+            with open(input_file) as f:
+                body = json.load(f)["body"]
+            if not dropping():
+                comment["body"] = body
+            save(state)
+        out = comment_json(state, host, cid, comment)
+    if jq_expr is None:
+        print(json.dumps(out))
+        return
+    result = subprocess.run(["jq", "-r", jq_expr], input=json.dumps(out), capture_output=True, text=True)
+    sys.stdout.write(result.stdout)
+    if result.returncode != 0:
+        fail(result.stderr.strip())
+
+
 def main():
+
     args = sys.argv[1:]
     with open(os.environ["FAKE_GH_LOG"], "a") as log:
         log.write(json.dumps(args) + "\n")
@@ -608,12 +670,8 @@ def main():
         if config is None:
             fail("Not Found (HTTP 404)")
         print(base64.b64encode(config.encode()).decode())
-    elif args[0] == "api" and "/issues/comments/" in args[1]:
-        nwo = "/".join(args[1].split("/")[1:3])
-        comment = state.get("comments", {}).get(args[1].rsplit("/", 1)[1])
-        if comment is None or comment["repo"] != nwo or not repo_on(state, nwo, host):
-            fail("Not Found (HTTP 404)")
-        print("https://api.%s/repos/%s/issues/%d" % (host, comment["repo"], comment["number"]))
+    elif args[0] == "api" and re.match(r"repos/[^/]+/[^/]+/issues/(comments/\d+|\d+/comments)$", args[1]):
+        comments_api(state, host, args[1], args[2:])
     elif args[0] == "issue":
         verb = args[1]
         positional, flags = opts(args[2:])
@@ -662,7 +720,7 @@ def main():
             else:
                 body = flags["body"]
             if not dropping():
-                comments[cid] = {"repo": nwo, "number": issue["number"], "body": body}
+                comments[cid] = {"repo": nwo, "number": issue["number"], "body": body, "user": login_on(state, host)}
             save(state)
             print("%s#issuecomment-%s" % (issue_url(state, nwo, issue["number"]), cid))
         elif verb == "close":

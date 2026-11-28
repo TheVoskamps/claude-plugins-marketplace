@@ -1,5 +1,24 @@
 # issues changelog
 
+## 0.20.0 — 2026-11-27
+
+`/issue-comment` gains two marker forms, which keep one comment on an
+issue current instead of posting a new one each time. The marker
+comment is the most recent comment whose first line is the header you
+name, whoever wrote it. The existing form is unchanged.
+
+- `/issue-comment <issue> --body-file PATH --marker <header>` edits the
+  marker comment to the file's text, or posts the file as a new comment
+  when the issue has none. It refuses a file whose first line is not
+  the header. After an edit it re-reads the comment and exits non-zero
+  unless it carries the file's text.
+- `/issue-comment <issue> --read --marker <header>` prints the marker
+  comment's body, and prints nothing and exits 0 when there is none.
+  `--read` without `--marker`, or with `--body-file`, even an empty
+  one, is a usage error.
+- Neither form has a Jira path: under `issues: Jira` the script exits
+  with its Jira message.
+
 ## 0.19.3 — 2026-11-25
 
 The README is now a user manual: what the plugin does, why you would

@@ -34,7 +34,7 @@ has.
 
 - Claude Code with this plugin enabled. Its dependencies, the `issues`,
   `git-tools`, `github-prs` and `cc-tools` plugins, are installed and
-  enabled with it; `issues` has to be 0.19.0 or later and `cc-tools`
+  enabled with it; `issues` has to be 0.20.0 or later and `cc-tools`
   0.12.0 or later.
 - A repository whose pull requests are on GitHub. Every PR is opened,
   read, reviewed and commented on through `github-prs`, which works
@@ -129,6 +129,48 @@ its first question. From there:
 The status is set only when the check returns no gap and every design
 question has your answer. A session that ends with a question
 open resumes on that question the next time you groom the issue.
+
+### Re-checking an issue
+
+A full readiness check grades the body against the bar and traces it
+against the code. For each behavior the body specifies and each
+acceptance criterion, the trace reads the code the body names or calls,
+confirms that names, interfaces and validators behave as the body
+assumes and that the criterion can pass for the change as specified,
+and follows any state the change introduces through success, stop and
+re-run.
+
+A `ready` verdict is then recorded on the issue as a stamp, so that a
+later check repeats only what could have changed. The stamp is one
+comment headed `## Orchestrate readiness`. It holds a hash of the body
+and the issue's blocked-by edges, the commit of the default branch that
+was graded, the sdlc version that graded it, and the files the verdict
+relied on, the body's files-affected paths among them. Any account's
+stamp counts, so one person can groom an issue and another can run it.
+
+Every check, stamped or not, first decides whether the issue is
+available and grades its mechanical acceptance bullets against the
+tree. A gap found there is followed by a full check. With none, the
+stamp decides the rest:
+
+| The issue's stamp | The rest of the check |
+| --- | --- |
+| Its hash and version match, and the default branch has changed none of its files since the stamped commit | Skipped: the verdict is `ready`. |
+| Its hash and version match, and the default branch has changed one of its files | Narrowed: it grades only whether that diff breaks the body, and re-grades nothing the diff leaves unchanged. |
+| There is none or it cannot be read, the body or a blocked-by edge changed, another sdlc version graded it, or its commit is not an ancestor of the default branch | Run in full. |
+
+A file the diff renames counts as changed under its old and its new
+path. A Jira tracker carries no stamp, so every check there runs in
+full.
+
+`/sdlc:orchestrate-ready` writes the stamp after its final `ready`
+verdict, once no design question waits on your answer.
+`/sdlc:orchestrate` writes it after a `ready` verdict from a narrowed
+or full check. After a skipped check neither writes. The write is
+refused unless the working tree is clean and at the tip of the freshly
+fetched default branch, so a stamp never names a commit other than the
+one that was read. A refused write is reported and leaves the verdict
+`ready`.
 
 ### The plan
 
@@ -388,7 +430,7 @@ The verbs you run:
 
 | Skill | Purpose |
 | --- | --- |
-| `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then set its status. Interactive. |
+| `/sdlc:orchestrate-ready <issue>` | Groom one issue until the readiness check passes, then stamp the verdict on the issue and set its status. Interactive. |
 | `/sdlc:orchestrate <issue>…` | Plan, implement, review and bring to merge one or more issues, refusing any that fails the readiness check. |
 | `/sdlc:git-review-pr <PR> [--generator-effort <low\|medium\|high\|xhigh>] [--full] [--mode <mode>]` | Review one PR outside an orchestrate run. `--mode` is `code-and-instruction-markdown`, the default, or `documentation`. |
 | `/sdlc:orchestrate-cleanup <PR> [--stale-locks] [--review-state] [--dry-run]` | Remove what one merged or closed PR left behind, keeping what a running agent may still use, then bring the default branch up to date. |
@@ -403,7 +445,7 @@ from the `/` menu:
 
 | Skill | Purpose |
 | --- | --- |
-| `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the grammar of an issue body, and the check that refuses an unavailable issue or returns what the body is missing. |
+| `sdlc:orchestrate-readiness` | The bar an issue meets before the orchestrator runs on it, the grammar of an issue body, and the check that refuses an unavailable issue or traces the body against the code, skipping or narrowing that grading when the issue's readiness stamp allows, and returns what the body is missing. |
 | `sdlc:theorem-agents-interface` | What the parameters of a theorem agent's brief mean, and the classes a finding's consequence falls into. |
 | `sdlc:agent-result-persist-interface` | What `sdlc-agent-result-persist` does: its modes, flags, paths and record grammar. |
 | `sdlc:pr-read-cli-interface` | What the PR-read executables take, print and exit with. |
@@ -445,6 +487,7 @@ Each is callable by bare name once the plugin is enabled.
 | `sdlc-agent-result-persist` | Writes and reads the review pipeline's state, and derives from it where a round stands, each theorem's disposition and severity, the verdicts and the posted review. |
 | `sdlc-decision` | Checks and stores a decision record and prints its question, stores your answer, prints a record or its question again, and reports whether a design question still waits on you. |
 | `sdlc-readiness-check` | Refuses an issue that is closed, closed by an open PR, named by a local branch or at a status not allowed; otherwise grades the mechanical acceptance bullets of its body against the tree and prints one line per gap. |
+| `sdlc-readiness-stamp` | `check` reads an issue's readiness stamp and prints whether a re-check can be skipped, narrowed to a diff, or has to run in full; `write` records a `ready` verdict as the stamp, refusing unless the working tree is clean and at the tip of the default branch. |
 | `sdlc-orchestrate-cleanup` | Removes worktrees, local branches and scratch for one merged or closed PR, or for the whole repository, keeping what a running agent may still use, then brings the default branch up to date. |
 | `sdlc-orchestrate-analysis` | Prints the time report and the per-class decisions table behind `/sdlc:orchestrate-analysis`. Writes nothing. |
 | `sdlc-pr-monitor` | Polls one ready PR until it merges, closes unmerged, falls behind or into conflict, or sits unchanged for the configured number of polls. Writes nothing. |
@@ -471,8 +514,9 @@ In the repository: each batch's branch and its commits, pushed to
 verbs.
 
 On GitHub: each draft PR, its reviews, the fixer-brief, adjustments
-and review-detail comments on it, the final section of its body, and
-the status and assignee of its issues.
+and review-detail comments on it, the final section of its body, the
+status and assignee of its issues, and the readiness stamp, one comment
+on each issue a check found ready.
 
 Outside every repository, the review state. With `<repo-dir>` for
 `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<host>/<owner>/<repo>` and
@@ -533,7 +577,7 @@ plugin for that name finds them all.
 
 | Plugin | What sdlc uses from it |
 | --- | --- |
-| `issues` | The issue verbs, and `issue-view` for the readiness check. Version 0.19.0 or later: with an older one the readiness check exits with an error naming the `issue-view` it needs. |
+| `issues` | The issue verbs, `issue-view` for the readiness check, and `issue-comment` for the readiness stamp. Version 0.20.0 or later, the first whose `issue-comment` takes `--marker`. |
 | `git-tools` | Branch creation, branch sync, the branch-name grammar and the default-branch lookup. |
 | `github-prs` | Every PR read and write. |
 | `cc-tools` | `claude-home`, which prints Claude Code's config directory, and the `agent-memory-inbox-cleanup` skill, which the `agent-memory-scrubber` agent runs when you spawn it yourself. Version 0.12.0 or later, the first with `claude-home`. |
