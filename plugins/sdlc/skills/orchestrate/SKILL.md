@@ -149,8 +149,9 @@ Read `skills/orchestrate/lib/pre-flight.md` and run it first: the
 primary-clone check, the per-repo config read that resolves
 `<link-prefix>` for the rest of the run, and the sdlc config
 resolution that fixes `orchestrate-statuses`, `seed-review`,
-`merge-wait`, `merge-poll-interval-seconds` and
-`merge-max-unchanged-polls` for the rest of the run.
+`merge-wait`, `merge-poll-interval-seconds`,
+`merge-max-unchanged-polls`, `merge-poll-error-retry-seconds` and
+`merge-poll-error-max-retries` for the rest of the run.
 
 ### Gate: refuse an issue that is not orchestrate-ready
 

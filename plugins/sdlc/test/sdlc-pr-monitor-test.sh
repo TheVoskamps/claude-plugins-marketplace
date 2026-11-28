@@ -8,10 +8,14 @@
 # UNKNOWN and for a PR that merged or closed after the state read, the
 # unchanged-poll bound, a state change resetting the count, one run
 # polling on to a terminal line however long it takes, the sleep
-# chunking of a long interval, the usage errors, a failing pr-view or
-# pr-ready-to-merge, and a failing command the script does not wrap.
+# chunking of a long interval, a recoverable pr-view or
+# pr-ready-to-merge failure retried after the retry wait up to the retry
+# limit, the usage errors, a failing pr-view or pr-ready-to-merge, a
+# failing command the script does not wrap, and a failing removal of the
+# temporary file on exit.
 #
-# Needs bash and the POSIX utilities. Reaches no network.
+# Needs bash and the POSIX utilities. Reaches no network, and writes
+# nothing outside its sandbox.
 #
 # Usage: sdlc-pr-monitor-test.sh    (exit 0 when every case passes)
 
@@ -21,6 +25,11 @@ TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MONITOR="$TEST_DIR/../bin/sdlc-pr-monitor"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/sdlc-pr-monitor-test.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
+# Every monitor run creates its temporary file under TMPDIR, so pointing
+# TMPDIR into the sandbox keeps each run's writes inside it, a file the
+# monitor fails to remove included.
+mkdir -p "$SANDBOX/tmp"
+export TMPDIR="$SANDBOX/tmp"
 FAILURES=0
 PR='h.example/o/r#7'
 
@@ -55,9 +64,10 @@ check_contains() {
 # The stubs. pr-view and pr-ready-to-merge each serve the file for their
 # n-th call, <kind>.<n>, and repeat <kind>.last past the end, logging
 # their arguments to <kind>.args; when <kind>.fail exists they print it
-# and exit 1 instead. When <kind>.rc.<n> exists the n-th call exits
-# with the status it holds after serving its file. sleep adds its
-# argument to the fake clock and logs it.
+# and exit 1 instead, and when <kind>.err.<n> exists the n-th call
+# prints it on stderr alone and exits 1. When <kind>.rc.<n> exists the
+# n-th call exits with the status it holds after serving its file.
+# sleep adds its argument to the fake clock and logs it.
 mkdir -p "$SANDBOX/bin"
 for kind in view gate; do
   case "$kind" in
@@ -74,6 +84,10 @@ echo "\$*" >>"\$d/$kind.args"
 if [ -f "\$d/$kind.fail" ]; then
   cat "\$d/$kind.fail"
   echo "$name: stub failure" >&2
+  exit 1
+fi
+if [ -f "\$d/$kind.err.\$n" ]; then
+  cat "\$d/$kind.err.\$n" >&2
   exit 1
 fi
 if [ -f "\$d/$kind.\$n" ]; then cat "\$d/$kind.\$n"; else cat "\$d/$kind.last"; fi
@@ -161,7 +175,7 @@ polls() {
 
 reset
 serve view "$SANDBOX/MERGED"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check "$RC" 0 "merged: exit 0"
 check "$OUT" "Polled $PR: MERGED
 Merged" "merged: the poll line, then Merged"
@@ -172,7 +186,7 @@ check "$(cat "$SANDBOX/serve/gate.n" 2>/dev/null || echo 0)" 0 "merged: the gate
 reset
 serve view "$SANDBOX/OPEN" "$SANDBOX/CLOSED"
 serve gate "$SANDBOX/blocked"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check "$RC" 0 "closed: exit 0"
 check "$LAST" "Closed without merging" "closed: the terminal line"
 check "$(polls)" 2 "closed: a poll per interval"
@@ -181,7 +195,7 @@ check "$SLEEPS" "60 " "closed: one wait between the polls"
 reset
 serve view "$SANDBOX/OPEN"
 serve gate "$SANDBOX/blocked" "$SANDBOX/behind"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check "$RC" 0 "behind: exit 0"
 check "$LAST" "BEHIND" "behind: the terminal line"
 check_contains "$OUT" "Polled $PR: OPEN; PR $PR: mergeable MERGEABLE, mergeStateStatus BEHIND" "behind: the poll line carries the gate's state"
@@ -189,7 +203,7 @@ check_contains "$OUT" "Polled $PR: OPEN; PR $PR: mergeable MERGEABLE, mergeState
 reset
 serve view "$SANDBOX/OPEN"
 serve gate "$SANDBOX/dirty"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check "$RC" 0 "dirty: exit 0"
 check "$LAST" "DIRTY" "dirty: the terminal line"
 check "$(polls)" 1 "dirty: one poll"
@@ -199,7 +213,7 @@ check "$(polls)" 1 "dirty: one poll"
 reset
 serve view "$SANDBOX/OPEN" "$SANDBOX/OPEN" "$SANDBOX/MERGED"
 serve gate "$SANDBOX/blocked-ci" "$SANDBOX/blocked-wait"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check "$(printf '%s\n' "$OUT" | sed -n 1p)" \
   "Polled $PR: OPEN; PR $PR: mergeable MERGEABLE, mergeStateStatus BLOCKED — meaning; reviewDecision: REVIEW_REQUIRED; checks running: ci: status IN_PROGRESS; checks not green: none" \
   "poll line: the report on one line, a check entry joined onto its label"
@@ -210,7 +224,7 @@ check "$LAST" "Merged" "poll line: polling continues past BLOCKED"
 reset
 serve view "$SANDBOX/OPEN" "$SANDBOX/MERGED"
 serve gate "$SANDBOX/blocked-ci-tab"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check_contains "$(printf '%s\n' "$OUT" | sed -n 1p)" "checks running: ci: status IN_PROGRESS; checks not green" \
   "poll line: a tab-indented check entry is joined onto its label"
 
@@ -220,7 +234,7 @@ reset
 serve view "$SANDBOX/OPEN"
 serve gate "$SANDBOX/unknown" "$SANDBOX/behind"
 echo 3 >"$SANDBOX/serve/gate.rc.1"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check "$RC" 0 "still unknown: exit 0"
 check_contains "$(printf '%s\n' "$OUT" | sed -n 1p)" "mergeable UNKNOWN, mergeStateStatus UNKNOWN" "still unknown: the poll line carries the UNKNOWN report"
 check "$(polls)" 2 "still unknown: polled again"
@@ -230,7 +244,7 @@ reset
 serve view "$SANDBOX/OPEN" "$SANDBOX/MERGED"
 serve gate "$SANDBOX/empty"
 echo 3 >"$SANDBOX/serve/gate.rc.1"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check "$RC" 0 "merged under the gate: exit 0"
 check "$OUT" "Polled $PR: MERGED
 Merged" "merged under the gate: pr-view is read again and reports Merged"
@@ -239,23 +253,34 @@ reset
 serve view "$SANDBOX/OPEN" "$SANDBOX/CLOSED"
 serve gate "$SANDBOX/empty"
 echo 3 >"$SANDBOX/serve/gate.rc.1"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check "$LAST" "Closed without merging" "closed under the gate: the terminal line"
 
 reset
 serve view "$SANDBOX/OPEN"
 serve gate "$SANDBOX/empty"
 echo 3 >"$SANDBOX/serve/gate.rc.1"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check "$RC" 1 "refused while open: exit 1"
 check_contains "$ERR" "pr-ready-to-merge $PR failed" "refused while open: the error names the gate"
+
+reset
+serve view "$SANDBOX/OPEN"
+serve gate "$SANDBOX/blocked"
+echo 3 >"$SANDBOX/serve/gate.rc.1"
+run "$PR" 60 3 45 2
+check "$RC" 1 "refused while open with a report: exit 1"
+check "$ERR" "pr-ready-to-merge: stub exit 3
+$(cat "$SANDBOX/blocked")
+sdlc-pr-monitor: pr-ready-to-merge $PR failed" \
+  "refused while open with a report: the gate's stderr, then its report, then the script's line"
 
 # --- the unchanged-poll bound -----------------------------------------
 
 reset
 serve view "$SANDBOX/OPEN"
 serve gate "$SANDBOX/blocked"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check "$RC" 0 "bound: exit 0"
 check "$LAST" "No change after 3 polls" "bound: the terminal line"
 check "$(polls)" 4 "bound: three unchanged polls after the first"
@@ -263,14 +288,14 @@ check "$(polls)" 4 "bound: three unchanged polls after the first"
 reset
 serve view "$SANDBOX/OPEN"
 serve gate "$SANDBOX/blocked" "$SANDBOX/blocked" "$SANDBOX/blocked-ci" "$SANDBOX/blocked-ci" "$SANDBOX/blocked-ci"
-run "$PR" 60 2
+run "$PR" 60 2 45 2
 check "$LAST" "No change after 2 polls" "reset: the terminal line"
 check "$(polls)" 5 "reset: a changed state restarts the count"
 
 reset
 serve view "$SANDBOX/OPEN" "$SANDBOX/OPEN" "$SANDBOX/MERGED"
 serve gate "$SANDBOX/blocked" "$SANDBOX/blocked-wait"
-run "$PR" 60 1
+run "$PR" 60 1 45 2
 check "$LAST" "No change after 1 polls" "wait announcement: no state change of its own"
 check "$(polls)" 2 "wait announcement: the second poll is the unchanged one"
 
@@ -279,7 +304,7 @@ check "$(polls)" 2 "wait announcement: the second poll is the unchanged one"
 reset
 serve view "$SANDBOX/OPEN"
 serve gate "$SANDBOX/blocked"
-run "$PR" 150 10
+run "$PR" 150 10 45 2
 check "$RC" 0 "single run: exit 0"
 check "$(polls)" 11 "single run: polls on past any wall-time limit until the bound"
 check "$LAST" "No change after 10 polls" "single run: ends on the terminal line"
@@ -289,14 +314,14 @@ check "$(printf '%s\n' "$OUT" | grep -vc '^Polled ')" 1 "single run: no line but
 reset
 serve view "$SANDBOX/OPEN"
 serve gate "$SANDBOX/blocked" "$SANDBOX/blocked" "$SANDBOX/blocked" "$SANDBOX/blocked-ci"
-run "$PR" 300 3
+run "$PR" 300 3 45 2
 check "$(polls)" 7 "single run: a change after the count reached two restarts it"
 check "$LAST" "No change after 3 polls" "single run: the restarted count reaches the bound"
 
 reset
 serve view "$SANDBOX/OPEN" "$SANDBOX/OPEN" "$SANDBOX/MERGED"
 serve gate "$SANDBOX/blocked"
-run "$PR" 600 10
+run "$PR" 600 10 45 2
 check "$RC" 0 "interval 600: exit 0"
 check "$(polls)" 3 "interval 600: polled"
 check "$SLEEPS" "60 60 60 60 60 60 60 60 60 60 60 60 60 60 60 60 60 60 60 60 " "interval 600: each wait in chunks of at most 60 s"
@@ -305,8 +330,109 @@ check "$LAST" "Merged" "interval 600: ends on the terminal line"
 reset
 serve view "$SANDBOX/OPEN" "$SANDBOX/MERGED"
 serve gate "$SANDBOX/blocked"
-run "$PR" 150 10
+run "$PR" 150 10 45 2
 check "$SLEEPS" "60 60 30 " "chunking: a remainder under 60 s is one last sleep"
+
+# --- recoverable failures ---------------------------------------------
+
+printf '%s\n' 'error connecting to api.github.com' \
+  'check your internet connection or https://githubstatus.com' \
+  'pr-view: gh pr view failed (exit 1)' >"$SANDBOX/connect-err"
+
+reset
+serve view "$SANDBOX/OPEN" "$SANDBOX/OPEN" "$SANDBOX/OPEN" "$SANDBOX/MERGED"
+serve gate "$SANDBOX/blocked"
+cp "$SANDBOX/connect-err" "$SANDBOX/serve/view.err.2"
+run "$PR" 60 10 45 2
+check "$RC" 0 "view connect error: exit 0"
+check "$(printf '%s\n' "$OUT" | sed -n 2p)" \
+  "Polled $PR: recoverable failure 1/2: error connecting to api.github.com" \
+  "view connect error: the failure's poll line carries the first stderr line"
+check "$(printf '%s\n' "$OUT" | grep -c -e 'githubstatus' -e 'gh pr view failed')" 0 \
+  "view connect error: no later stderr line reaches stdout"
+check "$LAST" "Merged" "view connect error: polling goes on to the terminal line"
+check "$SLEEPS" "60 45 60 " "view connect error: the retry waits <retry-wait>, the next poll <interval>"
+check "$ERR" "" "view connect error: nothing reaches stderr"
+
+reset
+serve view "$SANDBOX/OPEN" "$SANDBOX/MERGED"
+serve gate "$SANDBOX/blocked"
+echo 'HTTP 502: Bad Gateway (https://api.github.com/graphql)' >"$SANDBOX/serve/gate.err.1"
+run "$PR" 60 10 45 2
+check "$RC" 0 "gate 5xx: exit 0"
+check "$(printf '%s\n' "$OUT" | sed -n 1p)" \
+  "Polled $PR: recoverable failure 1/2: HTTP 502: Bad Gateway (https://api.github.com/graphql)" \
+  "gate 5xx: retried like a pr-view failure"
+check "$(cat "$SANDBOX/serve/gate.n")" 1 "gate 5xx: the retried poll reads pr-view again first"
+check "$LAST" "Merged" "gate 5xx: the retried poll reaches the terminal line"
+
+# recoverable_case <stderr> <label>: a first pr-view call failing with
+# the stderr is retried.
+recoverable_case() {
+  reset
+  serve view "$SANDBOX/OPEN" "$SANDBOX/MERGED"
+  serve gate "$SANDBOX/blocked"
+  echo "$1" >"$SANDBOX/serve/view.err.1"
+  run "$PR" 60 10 45 2
+  check "$RC.$LAST" "0.Merged" "recoverable: $2 is retried"
+}
+recoverable_case 'Post "https://api.github.com/graphql": net/http: TLS handshake timeout' "timeout"
+recoverable_case 'read tcp: i/o timed out' "timed out"
+recoverable_case 'HTTP 503: Service Unavailable' "HTTP 503"
+recoverable_case 'API rate limit exceeded for user ID 1' "rate limit"
+recoverable_case 'HTTP 429: Too Many Requests' "HTTP 429"
+
+reset
+serve view "$SANDBOX/OPEN"
+serve gate "$SANDBOX/blocked"
+printf '%s\n' 'GraphQL: Could not resolve to a PullRequest with the number of 7.' \
+  'pr-view: gh pr view failed (exit 1)' >"$SANDBOX/serve/view.err.1"
+run "$PR" 60 10 45 2
+check "$RC" 1 "non-recoverable: exit 1"
+check "$ERR" "GraphQL: Could not resolve to a PullRequest with the number of 7.
+pr-view: gh pr view failed (exit 1)
+sdlc-pr-monitor: pr-view $PR failed" "non-recoverable: the call's stderr verbatim, then the script's line"
+check "$OUT" "" "non-recoverable: no poll line"
+check "$SLEEPS" "" "non-recoverable: no retry wait"
+
+reset
+serve view "$SANDBOX/OPEN"
+serve gate "$SANDBOX/blocked"
+for n in 1 2 3; do echo "timeout $n" >"$SANDBOX/serve/view.err.$n"; done
+run "$PR" 60 10 45 2
+check "$RC" 1 "past max-retries: exit 1"
+check "$OUT" "Polled $PR: recoverable failure 1/2: timeout 1
+Polled $PR: recoverable failure 2/2: timeout 2" "past max-retries: a poll line per retried failure"
+check "$ERR" "timeout 3
+sdlc-pr-monitor: pr-view $PR failed" "past max-retries: the last failure's stderr verbatim, then the script's line"
+check "$SLEEPS" "45 45 " "past max-retries: a retry wait per retried failure"
+
+reset
+serve view "$SANDBOX/OPEN" "$SANDBOX/OPEN" "$SANDBOX/OPEN" "$SANDBOX/OPEN" "$SANDBOX/MERGED"
+serve gate "$SANDBOX/blocked"
+echo 'timeout' >"$SANDBOX/serve/view.err.1"
+echo 'timeout' >"$SANDBOX/serve/view.err.3"
+run "$PR" 60 10 45 1
+check "$RC" 0 "completed poll: exit 0"
+check "$(printf '%s\n' "$OUT" | grep -c 'recoverable failure 1/1')" 2 "completed poll: resets the consecutive-failure count"
+check "$LAST" "Merged" "completed poll: polling goes on to the terminal line"
+
+reset
+serve view "$SANDBOX/OPEN"
+serve gate "$SANDBOX/blocked"
+echo 'rate limit' >"$SANDBOX/serve/gate.err.2"
+echo 'rate limit' >"$SANDBOX/serve/gate.err.3"
+run "$PR" 60 2 45 2
+check "$LAST" "No change after 2 polls" "unchanged count: the terminal line"
+check "$(printf '%s\n' "$OUT" | grep -c '^Polled .*: OPEN;')" 3 "unchanged count: recoverable failures neither advance nor reset it"
+check "$(printf '%s\n' "$OUT" | grep -c 'recoverable failure')" 2 "unchanged count: both failures retried"
+
+reset
+serve view "$SANDBOX/OPEN" "$SANDBOX/MERGED"
+serve gate "$SANDBOX/blocked"
+echo 'timeout' >"$SANDBOX/serve/view.err.1"
+run "$PR" 60 10 150 2
+check "$SLEEPS" "60 60 30 " "retry wait: in chunks of at most 60 s"
 
 # --- refusals and failures --------------------------------------------
 
@@ -317,24 +443,34 @@ usage_case() {
   check "$RC" 2 "usage: $* exits 2"
 }
 usage_case "$PR" 60
-usage_case "$PR" 60 3 0
-usage_case "$PR" x 3
-usage_case "$PR" 60 -1
-usage_case "$PR" 0 3
-usage_case "$PR" 60 0
-usage_case "$PR" 60 3 0 1234
-usage_case "$PR" 60 3 y z
+# A call without <retry-wait> and <max-retries> is refused, never run
+# with values of the script's own.
+usage_case "$PR" 60 3
+usage_case "$PR" 60 3 45
+usage_case "$PR" 60 3 45 2 0
+usage_case "$PR" x 3 45 2
+usage_case "$PR" 60 -1 45 2
+usage_case "$PR" 0 3 45 2
+usage_case "$PR" 60 0 45 2
+usage_case "$PR" 60 3 0 2
+usage_case "$PR" 60 3 45 0
+usage_case "$PR" 60 3 y 2
+usage_case "$PR" 60 3 45 -1
 check "$OUT" "" "usage: nothing polled"
+run "$PR" 60 3 45 0
+check_contains "$ERR" "<max-retries> must be at least 1" "usage: a <max-retries> below 1 is named"
+run "$PR" 60 3 0 2
+check_contains "$ERR" "<retry-wait> must be at least 1" "usage: a <retry-wait> below 1 is named"
 
 reset
 echo "gh: no such PR" >"$SANDBOX/serve/view.fail"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check "$RC" 1 "pr-view fails: exit 1"
 check_contains "$ERR" "pr-view $PR failed" "pr-view fails: the error names pr-view"
 reset
 serve view "$SANDBOX/OPEN"
 cp "$SANDBOX/blocked" "$SANDBOX/serve/gate.fail"
-run "$PR" 60 3
+run "$PR" 60 3 45 2
 check "$RC" 1 "gate fails: exit 1"
 check_contains "$ERR" "pr-ready-to-merge: stub failure" "gate fails: the gate's own error passes through"
 check_contains "$ERR" "mergeStateStatus BLOCKED" "gate fails: the gate's report is on stderr"
@@ -342,10 +478,21 @@ check_contains "$ERR" "pr-ready-to-merge $PR failed" "gate fails: the error name
 
 reset
 serve view "$SANDBOX/MERGED"
-PATH="$SANDBOX/bin:$PATH" "$MONITOR" "$PR" 60 3 >&- 2>"$SANDBOX/err"
+PATH="$SANDBOX/bin:$PATH" "$MONITOR" "$PR" 60 3 45 2 >&- 2>"$SANDBOX/err"
 RC=$?
 check "$RC" 1 "unwrapped failure: a failing echo exits 1"
 check_contains "$(cat "$SANDBOX/err")" "\`echo \"Polled \$pr: MERGED\"\` failed" "unwrapped failure: the error names the command"
+
+# A failing rm in the EXIT trap leaves the exit status as it was.
+mkdir -p "$SANDBOX/rm-fails"
+printf '#!/bin/sh\nexit 1\n' >"$SANDBOX/rm-fails/rm"
+chmod +x "$SANDBOX/rm-fails/rm"
+reset
+serve view "$SANDBOX/MERGED"
+OUT=$(PATH="$SANDBOX/rm-fails:$SANDBOX/bin:$PATH" "$MONITOR" "$PR" 60 3 45 2 2>"$SANDBOX/err")
+RC=$?
+check "$RC.$(cat "$SANDBOX/err")" "0." "exit trap: a failed temporary-file removal keeps exit 0 and prints nothing"
+check "$(find "$SANDBOX/tmp" -mindepth 1 -maxdepth 1 -name 'sdlc-pr-monitor.*' | grep -c .)" 1 "exit trap: the file left behind is in the sandbox"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then

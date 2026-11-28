@@ -423,14 +423,17 @@ is.
 ## The brief for `pr-monitor`
 
 Give it the PR reference, the branch name, and the resolved
-`merge-poll-interval-seconds` and `merge-max-unchanged-polls` from
-pre-flight, on every spawn — the first, and each re-spawn after a
+`merge-poll-interval-seconds`, `merge-max-unchanged-polls`,
+`merge-poll-error-retry-seconds` and `merge-poll-error-max-retries`
+from pre-flight, on every spawn — the first, and each re-spawn after a
 `BEHIND` or `DIRTY` remedy or a pick to keep waiting:
 
 ```text
 PR <PR_REF> is ready for review. Branch: <branch-name>
 Poll interval: <merge-poll-interval-seconds> seconds
 Unchanged-poll bound: <merge-max-unchanged-polls>
+Retry wait after a recoverable poll failure: <merge-poll-error-retry-seconds> seconds
+Recoverable poll failures retried in a row: <merge-poll-error-max-retries>
 
 Watch the PR per your agent definition. Report back which outcome
 ended your loop and the state your last poll found.

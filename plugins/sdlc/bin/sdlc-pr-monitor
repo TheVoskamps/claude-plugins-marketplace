@@ -2,7 +2,9 @@
 #
 # sdlc-pr-monitor -- poll one ready pull request until it merges, closes,
 # falls BEHIND or DIRTY, or sits unchanged for <bound> consecutive polls,
-# waiting <interval> seconds between polls. Read-only.
+# waiting <interval> seconds between polls. It changes nothing on GitHub
+# or in the repo; its one write is a temporary file holding the last
+# call's stderr, removed on exit.
 #
 # One run polls until a terminal line, however long that takes, so the
 # caller starts it once, in the background, and waits for it to exit.
@@ -16,32 +18,48 @@
 # open sends the poll back to `pr-view`, which reads the merge or close
 # that happened in between. Runs under the bash 3.2 macOS ships.
 #
-# Usage: sdlc-pr-monitor <PR> <interval> <bound>
+# A failed pr-view or pr-ready-to-merge call whose stderr names a
+# transient cause -- a connection error, a timeout, an HTTP 5xx or 429,
+# a rate limit -- is recoverable: the poll is tried again after
+# <retry-wait> seconds, leaving the unchanged-poll count and the last
+# state as they were. A poll that completes resets the run of
+# consecutive failures; a run longer than <max-retries> ends the loop as
+# any other failure does.
 #
-#   <PR>        the pull request, in any form pr-view accepts
-#   <interval>  seconds between polls, a positive integer
-#   <bound>     consecutive unchanged polls that end the loop
+# Usage: sdlc-pr-monitor <PR> <interval> <bound> <retry-wait> <max-retries>
 #
-# Stdout is one line per poll, `Polled <PR>: <state>`. On exit 0 those
-# are followed by exactly one terminal line: `Merged`, `Closed without
-# merging`, `BEHIND`, `DIRTY` or `No change after <bound> polls`. On a
-# non-zero exit there is no such line: stdout holds only the poll lines
-# printed before the failure, and none on exit 2.
+#   <PR>           the pull request, in any form pr-view accepts
+#   <interval>     seconds between polls, a positive integer
+#   <bound>        consecutive unchanged polls that end the loop
+#   <retry-wait>   seconds before a poll is tried again after a
+#                  recoverable failure, a positive integer
+#   <max-retries>  consecutive recoverable failures retried before the
+#                  next one ends the loop, a positive integer
+#
+# Stdout is one line per poll, `Polled <PR>: <state>`, and one per
+# recoverable failure, `Polled <PR>: recoverable failure
+# <k>/<max-retries>: <first line of the failed call's stderr>`. On exit
+# 0 those are followed by exactly one terminal line: `Merged`, `Closed
+# without merging`, `BEHIND`, `DIRTY` or `No change after <bound>
+# polls`. On a non-zero exit there is no such line: stdout holds only
+# the poll lines printed before the failure, and none on exit 2.
 #
 # Exit statuses:
 #   0  the last line is a terminal line
-#   1  a command the script ran failed, pr-ready-to-merge refused the PR
-#      as not open while pr-view still read it OPEN, or pr-view reported
-#      a state other than OPEN, MERGED or CLOSED; a failed command's own
-#      error, and any report pr-ready-to-merge printed, is on stderr above
-#      the script's line
+#   1  a command the script ran failed with a non-recoverable error, or
+#      with a recoverable one past <max-retries> in a row,
+#      pr-ready-to-merge refused the PR as not open while pr-view still
+#      read it OPEN, or pr-view reported a state other than OPEN, MERGED
+#      or CLOSED; the failed call's own stderr, and any report
+#      pr-ready-to-merge printed, is on stderr above the script's line
 #   2  a usage error; nothing was polled
 set -uo pipefail
 
 PROGRAM=${0##*/}
 # No single `sleep` call may last longer than 60 seconds, so
-# wait_interval splits every wait into calls of at most CHUNK.
+# wait_seconds splits every wait into calls of at most CHUNK.
 CHUNK=60
+NL=$'\n'
 
 # fail <status> <message> -- print the message on stderr, prefixed with
 # the program name, and exit with the status.
@@ -58,27 +76,40 @@ fail() {
 set -E
 trap 'fail 1 "\`$BASH_COMMAND\` failed (exit $?)"' ERR
 
-usage="usage: $PROGRAM <PR> <interval> <bound>"
-[ "$#" -eq 3 ] || fail 2 "$usage"
+usage="usage: $PROGRAM <PR> <interval> <bound> <retry-wait> <max-retries>"
+[ "$#" -eq 5 ] || fail 2 "$usage"
 pr=$1
 interval=$2
 bound=$3
-for n in "$interval" "$bound"; do
+retry_wait=$4
+max_retries=$5
+for n in "$interval" "$bound" "$retry_wait" "$max_retries"; do
   case "$n" in
     '' | *[!0-9]*) fail 2 "not a non-negative integer: $n; $usage" ;;
   esac
 done
 [ "$interval" -ge 1 ] || fail 2 "<interval> must be at least 1 second"
 [ "$bound" -ge 1 ] || fail 2 "<bound> must be at least 1 poll"
+[ "$retry_wait" -ge 1 ] || fail 2 "<retry-wait> must be at least 1 second"
+[ "$max_retries" -ge 1 ] || fail 2 "<max-retries> must be at least 1 retry"
+
+# Every pr-view and pr-ready-to-merge call writes its stderr here, so a
+# failure is classified before any of it is printed. The EXIT trap
+# disarms the ERR trap first, so a failed removal leaves the exit status
+# the script was already exiting with.
+errfile=$(mktemp "${TMPDIR:-/tmp}/$PROGRAM.XXXXXX" || exit) || fail 1 "mktemp failed"
+trap 'trap - ERR; rm -f "$errfile"' EXIT
 
 # `last`, the previous poll's state, stays unset until the first poll,
-# so the first poll never counts as unchanged.
+# so the first poll never counts as unchanged. `failures` counts the
+# recoverable failures since the last completed poll.
 unchanged=0
+failures=0
 unset last
 
-# wait_interval -- sleep <interval> seconds, in calls of at most CHUNK.
-wait_interval() {
-  local i=0 full=$((interval / CHUNK)) rest=$((interval % CHUNK))
+# wait_seconds <n> -- sleep <n> seconds, in calls of at most CHUNK.
+wait_seconds() {
+  local i=0 full=$(($1 / CHUNK)) rest=$(($1 % CHUNK))
   while [ "$i" -lt "$full" ]; do
     sleep "$CHUNK" || fail 1 "sleep $CHUNK failed"
     i=$((i + 1))
@@ -112,13 +143,56 @@ compact() {
   done <<<"$1"
 }
 
+# pass_err -- print the last call's stderr, if it wrote any, on stderr.
+pass_err() {
+  local err
+  err=$(<"$errfile")
+  [ -z "$err" ] || printf '%s\n' "$err" >&2
+}
+
+# recoverable <stderr> -- succeed when a failed call's stderr names a
+# transient cause, one a later attempt can get past.
+recoverable() {
+  case "$1" in
+    *'error connecting to'* | *timeout* | *'timed out'* | *'HTTP 5'[0-9][0-9]* | \
+      *'rate limit'* | *'HTTP 429'*) return 0 ;;
+  esac
+  return 1
+}
+
+# call_failed <call> [<report>] -- handle a failed call whose stderr is
+# in errfile. A recoverable failure within <max-retries> in a row prints
+# its poll line, waits <retry-wait> seconds and returns, for the caller
+# to try the poll again. Any other ends the loop with the call's stderr,
+# then the report, if given, then the script's line naming the call.
+call_failed() {
+  local err
+  err=$(<"$errfile")
+  if recoverable "$err" && [ "$failures" -lt "$max_retries" ]; then
+    failures=$((failures + 1))
+    echo "Polled $pr: recoverable failure $failures/$max_retries: ${err%%"$NL"*}"
+    wait_seconds "$retry_wait"
+    return 0
+  fi
+  [ -z "$err" ] || printf '%s\n' "$err" >&2
+  [ -z "${2:-}" ] || printf '%s\n' "$2" >&2
+  fail 1 "$1 failed"
+}
+
 # read_view -- read the PR's state through pr-view. A merged or closed
-# PR prints the poll line and the terminal line and exits 0; an open PR
-# returns.
+# PR prints the poll line and the terminal line and exits 0. An open PR
+# returns with VIEW set to `open`, and a recoverable failure returns
+# with VIEW set to `retry` once its wait is over. VIEW, rather than the
+# return status, carries the outcome: a call tested with `||` would
+# silence the ERR trap for every command inside it.
 read_view() {
   local pr_state
-  pr_state=$(pr-view "$pr" --json state,mergedAt,closedAt --jq .state || exit) ||
-    fail 1 "pr-view $pr failed"
+  VIEW=retry
+  if ! pr_state=$(pr-view "$pr" --json state,mergedAt,closedAt --jq .state 2>"$errfile" || exit); then
+    call_failed "pr-view $pr"
+    return 0
+  fi
+  pass_err
   case "$pr_state" in
     MERGED)
       echo "Polled $pr: MERGED"
@@ -130,31 +204,40 @@ read_view() {
       echo "Closed without merging"
       exit 0
       ;;
-    OPEN) ;;
+    OPEN) VIEW=open ;;
     *) fail 1 "pr-view $pr reported an unrecognised state: $pr_state" ;;
   esac
 }
 
 while :; do
   read_view
+  [ "$VIEW" = open ] || continue
 
   gate=0
-  report=$(pr-ready-to-merge "$pr" || exit) || gate=$?
+  report=$(pr-ready-to-merge "$pr" 2>"$errfile" || exit) || gate=$?
   # The gate exits 3 both when the merge state is still UNKNOWN after its
   # retries, printing its report block, and when it refuses a PR that is
-  # not open, printing no block. The first is a state to poll again; the
-  # second means the PR merged or closed after read_view, which reads it
-  # again.
+  # not open, printing no block. Neither is a failure to classify: the
+  # first is a state to poll again; the second means the PR merged or
+  # closed after read_view, which reads it again.
   if [ "$gate" -eq 3 ]; then
+    pass_err
     case "$report" in
-      *'mergeable UNKNOWN,'*) gate=0 ;;
-      *) read_view ;;
+      *'mergeable UNKNOWN,'*) ;;
+      *)
+        read_view
+        [ "$VIEW" = open ] || continue
+        [ -z "$report" ] || printf '%s\n' "$report" >&2
+        fail 1 "pr-ready-to-merge $pr failed"
+        ;;
     esac
+  elif [ "$gate" -ne 0 ]; then
+    call_failed "pr-ready-to-merge $pr" "$report"
+    continue
+  else
+    pass_err
   fi
-  if [ "$gate" -ne 0 ]; then
-    [ -z "$report" ] || printf '%s\n' "$report" >&2
-    fail 1 "pr-ready-to-merge $pr failed"
-  fi
+  failures=0
   compact "$report"
   echo "Polled $pr: OPEN; $STATE"
 
@@ -178,5 +261,5 @@ while :; do
     exit 0
   fi
 
-  wait_interval
+  wait_seconds "$interval"
 done

@@ -59,6 +59,8 @@ merge-poll-interval-seconds: 300
 | `merge-wait` | `monitor` \| `skip` | `monitor` |
 | `merge-poll-interval-seconds` | positive integer | `60` |
 | `merge-max-unchanged-polls` | positive integer | `720` |
+| `merge-poll-error-retry-seconds` | positive integer | `30` |
+| `merge-poll-error-max-retries` | positive integer | `15` |
 | `reload-after-compact-token-budget` | decimal integer, at least `64000` | `100000` |
 | `code-review-max-rounds` | positive integer \| `unlimited` | `10` |
 | `docs-review-max-rounds` | positive integer \| `unlimited` | `5` |
@@ -97,6 +99,12 @@ merge-poll-interval-seconds: 300
 - **`merge-max-unchanged-polls`** — how many consecutive polls with no
   change in state `pr-monitor` runs before it asks whether to keep
   waiting.
+- **`merge-poll-error-retry-seconds`** — the wait before `pr-monitor`
+  tries a poll again after it failed on a recoverable error, such as a
+  dropped connection, with no upper cap.
+- **`merge-poll-error-max-retries`** — how many consecutive recoverable
+  poll failures `pr-monitor` retries; the next one ends its loop as a
+  script error. A completed poll restarts the count. No upper cap.
 - **`reload-after-compact-token-budget`** — how many tokens, counted
   as characters ÷ 4, of skill and rule-file text the
   `reload-after-compact` hook appends to a compacted conversation.
