@@ -15,10 +15,10 @@ import (
 // (a variable assigned from a command substitution, or an undefined/env
 // variable) must STILL escalate (fail-closed).
 
-// TestStaticVarPathResolvesToContainment covers case (a). A static in-repo
-// `P=...` followed by `cat "$P/file"` resolves and runs containment; an in-repo
-// target allows, and a cross-repo target denies (containment runs because the
-// path is resolved).
+// TestStaticVarPathResolvesToContainment pins that a variable assigned a static
+// literal resolves to that literal and runs through containment: a static
+// in-repo `P=...` followed by `cat "$P/file"` allows, and a static var pointing
+// at a cross-repo target denies.
 func TestStaticVarPathResolvesToContainment(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -79,10 +79,10 @@ func TestStaticVarPathResolvesToContainment(t *testing.T) {
 	wantBucket(t, d4, BucketDeny, "static-var cross-repo cat still denied")
 }
 
-// TestStaticVarPathFromCmdSubstStillEscalates covers case (b): a variable
-// assigned from a command substitution is NOT statically known, so a later use
-// must keep marking hasUnknownExpansion and escalate (fail-closed). It must NOT
-// be resolved to an empty / bogus path.
+// TestStaticVarPathFromCmdSubstStillEscalates pins that a variable assigned
+// from a command substitution is NOT statically known, so a later use must keep
+// marking hasUnknownExpansion and escalate (fail-closed). It must NOT be
+// resolved to an empty / bogus path.
 //
 // `$(pwd)` cannot stand in for the command substitution here: the gate
 // resolves it as a known-anchor substitution (TestPwdAnchorResolvesToTrackedCwd
@@ -110,13 +110,13 @@ func TestStaticVarPathFromCmdSubstStillEscalates(t *testing.T) {
 	wantBucket(t, d2, BucketDefer, "static-then-dynamic reassignment escalates")
 }
 
-// TestUndefinedVarPathStillEscalates covers case (c): a variable that was
-// never assigned in the program (an environment variable, or simply undefined)
-// is not statically known and must STILL escalate (fail-closed). $HOME is
-// EXCLUDED from this case — it is resolved via os.UserHomeDir()
-// (TestHomeVarResolvesLikeTilde in var_resolution_test.go) — so this
-// test uses $FOO, a name outside that closed allowlist, to pin the general
-// "arbitrary env var stays unresolvable" invariant.
+// TestUndefinedVarPathStillEscalates pins that a variable never assigned in
+// the program (an environment variable, or simply undefined) is not statically
+// known and must STILL escalate (fail-closed). $HOME is the exception — it is
+// resolved via os.UserHomeDir() (TestHomeVarResolvesLikeTilde in
+// var_resolution_test.go) — so this test uses $FOO, a name outside that closed
+// allowlist, to pin the general "arbitrary env var stays unresolvable"
+// invariant.
 func TestUndefinedVarPathStillEscalates(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -163,10 +163,10 @@ func TestEnvPrefixVarDoesNotPersist(t *testing.T) {
 // that a top-level assignment still resolves inside a scope, and that a process
 // substitution inside a scope classifies without panicking.
 
-// TestSubshellAssignmentDoesNotLeak covers scope case (a): a static
-// assignment inside a `( … )` subshell does not resolve a later TOP-LEVEL use.
-// The later `cat "$P/..."` must escalate as an unknown expansion, exactly as if
-// P had never been assigned.
+// TestSubshellAssignmentDoesNotLeak pins that a static assignment inside a
+// `( … )` subshell does not resolve a later TOP-LEVEL use. The later
+// `cat "$P/..."` must escalate as an unknown expansion, exactly as if P had
+// never been assigned.
 func TestSubshellAssignmentDoesNotLeak(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -192,10 +192,10 @@ func TestSubshellAssignmentDoesNotLeak(t *testing.T) {
 	wantBucket(t, d2, BucketDefer, "subshell assignment must not leak past the subshell")
 }
 
-// TestFuncBodyAssignmentDoesNotLeak covers scope case (b): a static
-// assignment inside a function body does not leak to a call outside the
-// function. Declaring a function does not run its body, and even when run the
-// body's assignments are scoped; a later top-level `$P` use must escalate.
+// TestFuncBodyAssignmentDoesNotLeak pins that a static assignment inside a
+// function body does not leak to a call outside the function. Declaring a
+// function does not run its body, and even when run the body's assignments are
+// scoped; a later top-level `$P` use must escalate.
 func TestFuncBodyAssignmentDoesNotLeak(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -219,9 +219,9 @@ func TestFuncBodyAssignmentDoesNotLeak(t *testing.T) {
 	wantBucket(t, d2, BucketDefer, "function-body local assignment must not leak")
 }
 
-// TestBackgroundedGroupAssignmentDoesNotLeak covers the backgrounded-scope
-// case: a `{ … ; } &` group (or a `( … ) &` subshell) runs in a child shell, so
-// an assignment inside it must not leak to a later top-level use.
+// TestBackgroundedGroupAssignmentDoesNotLeak pins that a `{ … ; } &` group (or
+// a `( … ) &` subshell) runs in a child shell, so an assignment inside it must
+// not leak to a later top-level use.
 func TestBackgroundedGroupAssignmentDoesNotLeak(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")

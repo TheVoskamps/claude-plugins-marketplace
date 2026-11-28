@@ -1703,13 +1703,13 @@ func TestHarnessSessionShape(t *testing.T) {
 // Both shapes must match the LIVE harness layout on the machine running
 // the tests, not only the fixtures above.
 //
-// This exists because the first implementation round encoded an "observed
-// layout across 17 projects on two machines" claim from the issue and shipped a
-// pattern that missed every hidden-directory project slug — a claim that one
-// `ls` of the real prefix falsified. Fixtures can only ever restate the author's
-// belief about the layout; this walks the actual directories the harness
-// created. It SKIPS cleanly when the prefix is absent or empty (a fresh machine,
-// a Linux CI box), so it costs nothing where there is no ground truth to check.
+// It walks the directories the harness actually created under the scratchpad
+// root and asserts that every bundled-skills version/hash pair and every
+// session scratchpad/ or tasks/ directory matches the shape the gate blesses.
+// Fixtures can only restate the author's belief about the layout; the live
+// directories are the ground truth. It SKIPS when the root is absent,
+// unreadable, or holds none of those directories (a fresh machine, a Linux CI
+// box), where there is nothing to check.
 //
 // A failure here means the harness's real layout has drifted away from a shape
 // the gate blesses — which silently downgrades those paths from ALLOW to DEFER.
