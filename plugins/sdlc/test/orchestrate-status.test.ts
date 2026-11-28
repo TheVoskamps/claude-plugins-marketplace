@@ -237,7 +237,7 @@ test("a name running more than once is counted, and children are listed under th
     running("a3", "sdlc:pr-merge-readiness"),
     running("c1", "sdlc:issue-fixer", "a3"),
     running("c2", "sdlc:issue-fixer", "a3"),
-    { id: "c3", status: "completed", type: "sdlc:agent-memory-scrubber", parentId: "a3" },
+    { id: "c3", status: "completed", type: "sdlc:issue-fixer", parentId: "a3" },
   ];
   await turnEnd($);
   expect(shown(state)).toBe("PR #812 · merge readiness · pr-merge-readiness › issue-fixer×2");
@@ -599,7 +599,6 @@ const SPAWNS: [string, string, string][] = [
   ["sdlc:docs-writer", `Write ${PR}`, "PR #812 · doc loop r1"],
   ["sdlc:style-checker", `Check ${PR} --mode documentation`, "PR #812 · doc loop r1"],
   ["sdlc:theorem-based-pr-reviewer", `Review ${PR} --mode documentation`, "PR #812 · doc loop r1"],
-  ["sdlc:agent-memory-scrubber", `Scrub ${PR}`, "PR #812 · memory scrub"],
   ["sdlc:pr-merge-readiness", `Gate ${PR}`, "PR #812 · merge readiness"],
   ["sdlc:pr-finalizer", `Finalize ${PR}`, "PR #812 · finalizer"],
   ["sdlc:pr-monitor", `Monitor ${PR}`, "PR #812 · monitor"],

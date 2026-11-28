@@ -5,6 +5,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
 effort: medium
 isolation: worktree
+memory: project
 skills:
   - github-prs:pr-diff
   - git-tools:git-branch-sync
@@ -54,8 +55,8 @@ brief with no `--mode` is a `code-and-instruction-markdown` check.
 ## You change nothing
 
 You commit nothing, push nothing, post nothing, and edit no tracked
-file. You use `Write` and `Edit` only on scratch work, which goes under
-`.claude/tmp/<task-slug>/`.
+file. You use `Write` and `Edit` only on your own memory files and on
+scratch work, which goes under `.claude/tmp/<task-slug>/`.
 
 ## Setup
 

@@ -1,0 +1,9 @@
+{
+  "name": "memory-tools",
+  "description": "Captures every Write or Edit into agent memory or auto memory with a PostToolUse hook, one YAML record per call under ${XDG_STATE_HOME:-~/.local/state}/memory-tools/<host>/<owner>/<repo>/, and grades what it captured for a checkout with the read-only /memory-tools:memory-grade skill: delete, durable, or no code home, each with its evidence or its destination.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Edwin Voskamp",
+    "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps"
+  }
+}
