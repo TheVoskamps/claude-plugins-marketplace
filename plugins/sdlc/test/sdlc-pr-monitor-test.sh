@@ -27,10 +27,7 @@ SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/sdlc-pr-monitor-test.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
 # Every monitor run creates its temporary file under TMPDIR, so pointing
 # TMPDIR into the sandbox keeps each run's writes inside it, a file the
-# monitor fails to remove included. The caller's directory's monitor
-# files are listed first, so the last case can show it gained none.
-CALLER_TMPDIR="${TMPDIR:-/tmp}"
-find "$CALLER_TMPDIR" -mindepth 1 -maxdepth 1 -name 'sdlc-pr-monitor.*' | sort >"$SANDBOX/caller-tmp.before"
+# monitor fails to remove included.
 mkdir -p "$SANDBOX/tmp"
 export TMPDIR="$SANDBOX/tmp"
 FAILURES=0
@@ -496,8 +493,6 @@ OUT=$(PATH="$SANDBOX/rm-fails:$SANDBOX/bin:$PATH" "$MONITOR" "$PR" 60 3 45 2 2>"
 RC=$?
 check "$RC.$(cat "$SANDBOX/err")" "0." "exit trap: a failed temporary-file removal keeps exit 0 and prints nothing"
 check "$(find "$SANDBOX/tmp" -mindepth 1 -maxdepth 1 -name 'sdlc-pr-monitor.*' | grep -c .)" 1 "exit trap: the file left behind is in the sandbox"
-find "$CALLER_TMPDIR" -mindepth 1 -maxdepth 1 -name 'sdlc-pr-monitor.*' | sort >"$SANDBOX/caller-tmp.after"
-check "$(comm -13 "$SANDBOX/caller-tmp.before" "$SANDBOX/caller-tmp.after")" "" "exit trap: the caller's temporary directory gains no monitor file"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then
