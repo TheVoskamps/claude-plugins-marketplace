@@ -1,5 +1,55 @@
 # claude-vm changelog
 
+## 0.24.0 — 2026-11-27
+
+The launcher now checks your config files as you wrote them and aborts
+on what it used to accept and misread, and the config keys have one
+definition that everything else reads.
+
+A config that launched before can abort now. Each abort names the key
+or the file:
+
+- A scalar key whose value is not of its type. A boolean key such as
+  `update_at_boot` or `claude.plugins.update_at_boot` takes a bare
+  `true` or `false`, so a quoted `"true"` aborts. A string or path key
+  refuses a bare YAML boolean; quote it to mean the string. An
+  enumeration key such as `claude.permission_mode` or `claude.renderer`
+  refuses a YAML `false`, a value outside its list, and several values
+  joined with `|`.
+- A scalar key written as an empty map (`{}`), which used to fall back
+  to the key's default.
+- A `claude.plugins.enabled` that is not a map, or an entry in it whose
+  value is not a boolean — a map, a list, `{}` or null.
+- A YAML alias (`*name`) anywhere in a config file. Write the value out
+  in full.
+- A config file holding more than one YAML document.
+- A key under a parent that is not a map, such as `repo: 5`.
+- A newline in any string, a map key included, other than an `env.set`
+  value. A value's trailing newline counts, so `"clone\n"` is refused
+  rather than read as `clone`.
+
+A scalar written as `""` now reads as unset in every tier and takes the
+key's default.
+
+Also in this release:
+
+- `yq` must be mikefarah v4.54.3 or a later v4; the launcher refuses an
+  older one, naming the version it found.
+- The new `claude-vm-config-keys` command prints every config key with
+  the file it belongs in, its type, whether it is a list or a scalar,
+  and its default. `/claude-vm-config-global` and
+  `/claude-vm-config-repo` interview from that output, so the global
+  wizard now proposes the launcher's own defaults of 4 cpus and 8192 MB
+  of memory.
+- Cached guest images rebuild on the first launch after the upgrade.
+- The plugin README is now the user manual: it covers pinning the
+  signing key, extra mounts, where state lives and what the launcher
+  refuses in a config file. `payload/README.md` is gone.
+- If you call the payload scripts yourself: the image provisioner
+  requires `CLAUDE_VM_ROOT_HEADROOM_MB` and the bundled proxy script
+  requires `CLAUDE_VM_PROXY_PORT` from their caller, and each aborts
+  without it.
+
 ## 0.23.2 — 2026-11-27
 
 No change to the launcher or the guest. The `guardrails` permission-gate
