@@ -28,8 +28,9 @@ or the file:
   value. A value's trailing newline counts, so `"clone\n"` is refused
   rather than read as `clone`.
 
-A scalar written as `""` now reads as unset in every tier and takes the
-key's default.
+A key that takes a single value, written as `""`, now reads as unset in
+every tier and takes the key's default. That does not cover a
+map-valued key.
 
 Also in this release:
 
@@ -37,7 +38,9 @@ Also in this release:
   older one, naming the version it found.
 - The new `claude-vm-config-keys` command prints every config key with
   the file it belongs in, its type, whether it is a list or a scalar,
-  and its default. `/claude-vm-config-global` and
+  and its default. A map-valued key prints as a scalar and merges per
+  entry, the per-repo entry over the global one.
+  `/claude-vm-config-global` and
   `/claude-vm-config-repo` interview from that output, so the global
   wizard now proposes the launcher's own defaults of 4 cpus and 8192 MB
   of memory.

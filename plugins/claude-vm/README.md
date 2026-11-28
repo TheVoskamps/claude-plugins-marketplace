@@ -61,16 +61,17 @@ Config is four YAML files, all optional:
 | global | `~/.config/claude-vm/config-bake.yml` | `~/.config/claude-vm/config-boot.yml` |
 | per-repo | `<repo>/.claude-vm/config-bake.yml` | `<repo>/.claude-vm/config-boot.yml` |
 
-A **bake** file holds keys that change bytes in the guest image —
-packages baked in, apt sources, plugins installed into the image,
-environment literals written into it. A **boot** file holds keys
-applied at run time — cpus and memory, the egress allowlist, mounts,
-the proxy, the repo mount strategy, environment variables forwarded
-from the host, and the claude version and signing-key pin. A
-`claude.plugins` sub-key in the wrong file, or `env.copy` or
-`env.files` in a bake file, aborts the launch. The effective config is
-the union of all four, with per-repo scalars overriding global ones and
-lists unioned.
+A **bake** file holds keys that change bytes in the guest image, and a
+**boot** file holds keys applied at run time. `claude-vm-config-keys`, a
+command the plugin puts on PATH, prints every key with the file it
+belongs in, its type, whether it is a `list` or a `scalar`, and its
+default. The launcher enforces the file for some keys, and one of those
+written in the wrong file aborts the launch, naming the file.
+
+The effective config is all four files merged. A `list` key takes the
+entries of both tiers. A `scalar` key takes the per-repo value over the
+global one, except one whose type is a map, which merges per entry with
+the per-repo entry winning.
 
 The guest image is keyed on the raw bytes of the bake files, so editing
 a bake file rebuilds the image on the next launch and editing a boot
@@ -82,10 +83,7 @@ With no config at all the launcher runs on built-in defaults.
 `/claude-vm-config-global` writes the global pair from those defaults
 and `/claude-vm-config-repo` writes a per-repo pair holding only the
 keys the repo overrides; both leave an existing file alone unless you
-choose to merge. `claude-vm-config-keys`, a command the plugin puts on
-PATH, prints every key with the file it belongs in, its type, whether
-the tiers union or override it, and its default.
-`payload/config-bake.example.yml` and `payload/config-boot.example.yml`
+choose to merge. `payload/config-bake.example.yml` and `payload/config-boot.example.yml`
 show what populated entries look like.
 
 ### What the launcher refuses in a config file
@@ -99,8 +97,8 @@ them, and aborts the launch on anything it would otherwise misread:
   string; an enumeration key takes one of its listed values, never
   several joined with `|`; and an empty map (`{}`) is no value for a
   key that takes a single value. The message names the key. A key left
-  out, left valueless or written as `""` is unset and takes its
-  default.
+  out or left valueless is unset and takes its default, and so is a
+  key that takes a single value written as `""`.
 - A `claude.plugins.enabled` entry whose value is not a boolean.
 - A YAML alias (`*name`) anywhere in a file. The launcher does not
   resolve aliases; write the value out in full.
