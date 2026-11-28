@@ -3915,7 +3915,7 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# Test 35: the guest boot launcher's boot_mount_phase (issue #157).
+# Test 35: the guest boot launcher's boot_mount_phase.
 #
 # The GUEST half of `mounts:`. Extracted from the <<'BOOT' heredoc in
 # build-guest-image.sh by line range, the same way boot_apt_phase (Test 23) and
