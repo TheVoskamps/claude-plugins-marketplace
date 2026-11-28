@@ -624,8 +624,8 @@ derive.
   `review` refuses its payload as empty, when `leave`, `records` or
   `review` refuses a `--from` file that could not be read, or `leave`
   refuses a report whose `THEOREM:` line does not name `--theorem`, a
-  theorem list whose ids do not continue the carried records, or one
-  whose count line is missing or wrong;
+  theorem list whose ids do not continue the carried records, or a
+  theorem list or an assessment whose count line is missing or wrong;
   `anchor` renames a voided round rather than removing it.
 
 The script stamps every record's time itself: the writer owns when the
