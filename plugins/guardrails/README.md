@@ -44,6 +44,28 @@ reason, to `~/.claude/logs/permission-gate.jsonl`, or to the file
 `PERMISSION_GATE_LOG` names. An allow is not recorded; a warning about
 the config file is, whatever the outcome of the call it rode on.
 
+## Claude Code's config directory
+
+The gate denies a read or write that resolves outside the current
+repository, and `~/.claude` is the exception: a call on a file there is
+not denied on that ground. A Read, Write or Edit of one gets no
+opinion, so your allow-list decides it.
+
+A session running under a second account keeps its config in the
+directory `CLAUDE_CONFIG_DIR` names. When the gate accepts that
+directory, a file under it gets the outcome it would get under
+`~/.claude`:
+
+- An accepted directory is `$HOME/.claude.<name>`, where `<name>` holds
+  only ASCII letters, digits, `_` and `-`.
+- `$HOME/.claude.backup` is refused, and so is a directory that is a
+  symlink, which could point an accepted name at any directory.
+- A refused value changes nothing: a file under the directory it names
+  gets the outcome it would get with the variable unset.
+
+`~/.claude` keeps its exception whatever the variable holds, and the
+log above stays under `~/.claude` for every account.
+
 ## Using it
 
 Install it like any plugin from this marketplace. There is no skill
