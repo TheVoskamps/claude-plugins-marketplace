@@ -59,9 +59,10 @@
 # every path of the body's `## Files affected (floor)` section, and posts
 # it, editing the existing stamp when there is one. A --file path inside
 # the working tree given as an absolute path is stored relative to its
-# root. It refuses, writing nothing, when the tracker is Jira, the working
-# tree has a change or an untracked file, a --file path is absolute outside
-# the working tree or has an empty, `.` or `..` component, --commit names
+# root, and one leading `./` is dropped from every --file path. It
+# refuses, writing nothing, when the tracker is Jira, the working tree has
+# a change or an untracked file, a --file path is absolute outside the
+# working tree or has an empty, `.` or `..` component, --commit names
 # no commit, or HEAD, --commit and the fetched remote default branch are
 # not one commit.
 #
