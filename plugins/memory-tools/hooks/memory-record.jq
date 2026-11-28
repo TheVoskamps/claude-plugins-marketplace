@@ -7,6 +7,7 @@
 # and U+0085, U+2028 and U+2029, which YAML 1.1 does.
 def unblockable: "[\\x{0}-\\x{8}\\x{b}-\\x{1f}\\x{7f}-\\x{9f}\\x{2028}\\x{2029}\\x{fffe}\\x{ffff}]";
 
+# The four lowercase hex digits of a code point below U+10000.
 def hex4:
   [(. / 4096 | floor) % 16, (. / 256 | floor) % 16, (. / 16 | floor) % 16, . % 16]
   | map("0123456789abcdef"[.:. + 1]) | add;

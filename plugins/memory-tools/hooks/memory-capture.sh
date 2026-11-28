@@ -123,6 +123,7 @@ case $path in */*) ;; *) exit 0 ;; esac
 repo=${path##*/}
 owner=${path%/*}
 owner=${owner##*/}
+# Each part becomes a directory name under the state directory.
 for part in "$host" "$owner" "$repo"; do
   case $part in '' | . | .. | *[!A-Za-z0-9._-]*) exit 0 ;; esac
 done
