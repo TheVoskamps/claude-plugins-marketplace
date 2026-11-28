@@ -1,14 +1,14 @@
 # shellcheck shell=bash
 # Shared code for the scripts in plugins/issues/bin/: the
-# .issues/repo-config.md read and its checks, the repository grammar, the
-# wrappers every API call goes through, operand parsing, node-ID and
+# .issues/repo-config.md read and its checks, the calls to github-ref that
+# parse every reference, the wrappers every API call goes through, node-ID and
 # field/option ID resolution, the GraphQL documents, the set-slot write paths,
 # and the canonical error catalogue. Every script sources this file and
 # nothing else, so each of these is written exactly once.
 #
-# Runs under bash 3.2 and depends on nothing beyond gh, jq, curl and the base
-# userland (awk, grep, sed, tr, mktemp): no associative arrays, no ${var,,},
-# no mapfile.
+# Runs under bash 3.2 and depends on nothing beyond gh, jq, curl, the
+# github-tools plugin's github-ref and the base userland (awk, grep, sed, tr,
+# mktemp): no associative arrays, no ${var,,}, no mapfile.
 
 ISS_PROGRAM=${0##*/}
 
@@ -559,42 +559,62 @@ iss_load_target_config() {
 # name on its own default host, whatever host the checkout's remote is on. An
 # empty host stands for that default host; it is what a repository named
 # owner/repo gets where there is no current repository.
+#
+# Every reference is parsed, and each of its parts checked, by github-ref,
+# which the github-tools plugin puts on PATH. Its context repository is the
+# placeholder below rather than the current repository, so a reference is
+# checked before any gh call and its own parts come back unchanged; a part
+# that comes back as the placeholder's is one the reference left out, which
+# iss_take_current fills in.
 # ---------------------------------------------------------------------------
 
-# iss_split_url <url>: split https://host/owner/repo, a trailing / ignored,
-# into URL_HOST, URL_OWNER and URL_REPO. Returns 1 on any other shape.
-iss_split_url() {
-  local rest=${1%/}
-  case "$rest" in https://*) rest=${rest#https://} ;; *) return 1 ;; esac
-  case "$rest" in */*/*/* | *//* | /* | */) return 1 ;; ?*/?*/?*) ;; *) return 1 ;; esac
-  URL_HOST=${rest%%/*}
-  rest=${rest#*/}
-  URL_OWNER=${rest%/*}
-  URL_REPO=${rest#*/}
+# The placeholder context. No GitHub host sits under the reserved `.invalid`
+# top-level domain, so a reference never names this host itself.
+readonly ISS_PH_HOST=context.invalid
+readonly ISS_PH_OWNER=github-ref-context
+readonly ISS_PH_REPO=github-ref-context
+
+# iss_github_ref <github-ref args...>: run github-ref and split the line it
+# prints on exit 0 into GR_HOST, GR_OWNER, GR_REPO and GR_NUMBER. Returns 0,
+# 2 or 3 as github-ref does, and aborts on any other status, which means
+# github-ref did not run.
+iss_github_ref() {
+  local out rc=0
+  out=$(github-ref "$@") || rc=$?
+  case "$rc" in
+    0) ;;
+    2 | 3) return "$rc" ;;
+    127) iss_die "\`github-ref\` is not on PATH; the issues plugin needs the github-tools plugin enabled" ;;
+    *) iss_die "\`github-ref $1\` failed (exit $rc)" ;;
+  esac
+  IFS='|' read -r GR_HOST GR_OWNER GR_REPO GR_NUMBER _ <<EOF
+$out
+EOF
 }
 
-# iss_view_current_repo: the one `gh repo view` call, which takes the host
-# from the checkout's remote. Sets URL_HOST, URL_OWNER and URL_REPO; returns 1
-# when gh cannot resolve the repository, gh's stderr passed through.
-iss_view_current_repo() {
-  local url
-  url=$(gh repo view --json url --jq .url) && iss_split_url "$url"
+# iss_github_ref_parsed <subcommand> <reference> [<github-ref args...>]:
+# iss_github_ref on the reference, under the placeholder context.
+iss_github_ref_parsed() {
+  local sub=$1 ref=$2
+  shift 2
+  iss_github_ref "$sub" "$@" --in "$ISS_PH_HOST/$ISS_PH_OWNER/$ISS_PH_REPO" -- "$ref"
 }
 
-# iss_current_repo: resolve the current repository. Sets ISS_HOST, ISS_OWNER
+# iss_current_repo: resolve the current repository, the one the checkout's
+# `origin` remote names, with `github-ref origin`. Sets ISS_HOST, ISS_OWNER
 # and ISS_REPO, and aborts when it cannot.
 iss_current_repo() {
-  iss_view_current_repo ||
-    iss_die "could not resolve the current GitHub repository with \`gh repo view\`"
+  iss_github_ref origin ||
+    iss_die "could not resolve the current GitHub repository from the checkout's \`origin\` remote"
   ISS_CURRENT_TRIED=yes
-  ISS_HOST=$URL_HOST
-  ISS_OWNER=$URL_OWNER
-  ISS_REPO=$URL_REPO
+  ISS_HOST=$GR_HOST
+  ISS_OWNER=$GR_OWNER
+  ISS_REPO=$GR_REPO
 }
 
 # iss_try_current_repo: the same, for a verb that also runs where there is no
-# current repository. Outside a git checkout, or where gh cannot resolve the
-# checkout's repository, it leaves ISS_HOST, ISS_OWNER and ISS_REPO empty and
+# current repository. Outside a git checkout, with no `origin` remote, or where
+# gh cannot resolve it, it leaves ISS_HOST, ISS_OWNER and ISS_REPO empty and
 # returns 1; outside a checkout it makes no gh call. Once either function
 # has run, this one makes no gh call and returns the answer already held.
 iss_try_current_repo() {
@@ -606,139 +626,75 @@ iss_try_current_repo() {
   ISS_HOST=
   ISS_OWNER=
   ISS_REPO=
-  git rev-parse --show-toplevel >/dev/null 2>&1 || return 1
-  iss_view_current_repo 2>/dev/null || return 1
-  ISS_HOST=$URL_HOST
-  ISS_OWNER=$URL_OWNER
-  ISS_REPO=$URL_REPO
+  iss_github_ref origin || return 1
+  ISS_HOST=$GR_HOST
+  ISS_OWNER=$GR_OWNER
+  ISS_REPO=$GR_REPO
 }
 
-# iss_valid_name <name>: whether <name> is a repository name GitHub allows: 1
-# to 100 ASCII letters, digits, ".", "-" and "_", any of them first. The
-# letters are spelled out rather than given as ranges, because what a range
-# matches depends on the locale: under a UTF-8 one, the ranges admit letters
-# such as é.
+# iss_valid_name <name>: whether github-ref accepts <name> as a repository
+# name.
 iss_valid_name() {
-  case "$1" in
-    '' | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-]*) return 1 ;;
-  esac
-  [ "${#1}" -le 100 ]
+  iss_github_ref name -- "$1"
 }
 
-# iss_valid_owner <owner>: whether <owner> is an owner GitHub allows: 1 to 39
-# ASCII letters, digits and "-", not starting with "-" and with no "--". The
-# letters are spelled out for the same reason as in iss_valid_name.
+# iss_valid_owner <owner> [<host>]: whether github-ref accepts <owner> as an
+# owner, and <host> as a host when given. github-ref checks an owner only
+# inside a repository reference, so the check names a placeholder repository.
 iss_valid_owner() {
-  case "$1" in
-    '' | -* | *--* | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-]*) return 1 ;;
-  esac
-  [ "${#1}" -le 39 ]
+  iss_github_ref repo -- "${2:-$ISS_PH_HOST}/$1/$ISS_PH_REPO"
 }
 
 # iss_valid_login <login>: whether <login> can be a user's login: ASCII
-# letters, digits, "-" and "_", not starting with "-". An owner never holds
-# "_", but an Enterprise Managed User's login does, before its shortcode. The
-# letters are spelled out for the same reason as in iss_valid_name.
+# letters, digits, "-" and "_", not starting with "-". An Enterprise Managed
+# User's login holds "_" before its shortcode. The letters are spelled out
+# rather than given as a range, because what a range matches follows the
+# locale: under a UTF-8 one a range admits letters such as é.
 iss_valid_login() {
   case "$1" in
     '' | -* | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-]*) return 1 ;;
   esac
 }
 
-# iss_valid_host <host>: whether <host> is a DNS hostname: at most 253
-# characters of "."-separated labels, each 1 to 63 ASCII letters, digits and
-# "-", neither starting nor ending with "-". The letters are spelled out for
-# the same reason as in iss_valid_name.
-iss_valid_host() {
-  local rest=$1. label
-  [ "${#1}" -le 253 ] || return 1
-  while [ -n "$rest" ]; do
-    label=${rest%%.*}
-    case "$label" in
-      '' | -* | *- | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-]*) return 1 ;;
-    esac
-    [ "${#label}" -le 63 ] || return 1
-    rest=${rest#*.}
-  done
+# iss_take_current <reference>: once github-ref has parsed <reference> under
+# the placeholder context, take the host it left out from the current
+# repository, resolved with iss_try_current_repo, and the owner too when it
+# left that out. With no current repository the host is empty, and a
+# reference that left out its owner is a usage error.
+iss_take_current() {
+  local owner=$GR_OWNER repo=$GR_REPO number=$GR_NUMBER
+  [ "$GR_HOST" = "$ISS_PH_HOST" ] || return 0
+  # iss_try_current_repo runs github-ref too, so the parsed parts are kept
+  # across it.
+  iss_try_current_repo || :
+  GR_REPO=$repo
+  GR_NUMBER=$number
+  GR_OWNER=$owner
+  if [ "$owner" = "$ISS_PH_OWNER" ]; then
+    [ -n "$ISS_OWNER" ] ||
+      iss_usage_die "\`$1\` names a repository under the current repository's owner, and there is no current repository"
+    GR_OWNER=$ISS_OWNER
+  fi
+  GR_HOST=$ISS_HOST
 }
 
-# iss_valid_path <path>: whether each part of repo, owner/repo or
-# host/owner/repo is valid for its place, by iss_valid_host, iss_valid_owner
-# and iss_valid_name. gp_parse_pr in the github-prs plugin checks the same
-# shapes, but through letter ranges, so under a UTF-8 locale it also accepts
-# non-ASCII letters such as é that these refuse.
-iss_valid_path() {
-  case "$1" in
-    */*/*/*) return 1 ;;
-    */*/*) iss_valid_host "${1%%/*}" && iss_valid_path "${1#*/}" ;;
-    */*) iss_valid_owner "${1%/*}" && iss_valid_name "${1#*/}" ;;
-    *) iss_valid_name "$1" ;;
-  esac
-}
-
-# iss_parse_repo <reference>: the one parser of the repository grammar. Sets
-# RP_HOST, RP_OWNER and RP_REPO from
-#   repo                     that repo under the current repository's owner,
-#                            on its host
-#   owner/repo               that repository, on the current repository's host
-#   host/owner/repo          that repository, on that host
-#   https://host/owner/repo  the same as host/owner/repo; a trailing / is
-#                            ignored
-# Each part is checked by iss_check_repo_syntax, so a malformed reference is a
-# usage error before any gh call; a form without a host resolves the current
-# repository with iss_try_current_repo. With no current repository, repo is a
-# usage error and owner/repo gets the empty host.
+# iss_parse_repo <reference>: parse a repository reference, in any form
+# `github-ref repo` takes, into GR_HOST, GR_OWNER and GR_REPO, which the next
+# github-ref call replaces. A malformed reference is a usage error before any
+# gh call, through iss_check_repo_syntax, and the parts it leaves out come
+# from the current repository, through iss_take_current.
 iss_parse_repo() {
-  local ref=$1 rest
-  iss_check_repo_syntax "$ref"
-  case "$ref" in
-    *://*)
-      iss_split_url "$ref"
-      RP_HOST=$URL_HOST
-      RP_OWNER=$URL_OWNER
-      RP_REPO=$URL_REPO
-      return 0
-      ;;
-  esac
-  rest=${ref%/}
-  case "$rest" in */*/*) ;; *) iss_try_current_repo || : ;; esac
-  case "$rest" in
-    */*/*)
-      RP_HOST=${rest%%/*}
-      rest=${rest#*/}
-      RP_OWNER=${rest%/*}
-      RP_REPO=${rest#*/}
-      ;;
-    */*)
-      RP_HOST=$ISS_HOST
-      RP_OWNER=${rest%/*}
-      RP_REPO=${rest#*/}
-      ;;
-    *)
-      [ -n "$ISS_OWNER" ] ||
-        iss_usage_die "\`$ref\` names a repository under the current repository's owner, and there is no current repository"
-      RP_HOST=$ISS_HOST
-      RP_OWNER=$ISS_OWNER
-      RP_REPO=$rest
-      ;;
-  esac
+  iss_check_repo_syntax "$1"
+  iss_take_current "$1"
 }
 
 # iss_check_repo_syntax <reference>: the syntax half of iss_parse_repo, which
-# makes no gh call. A reference that is none of iss_parse_repo's forms, or
-# whose parts iss_valid_path refuses, is a usage error.
+# makes no gh call; GR_HOST, GR_OWNER and GR_REPO are left as github-ref
+# parsed them under the placeholder context. A reference github-ref refuses
+# is a usage error.
 iss_check_repo_syntax() {
-  local ref=$1 rest bad
-  bad="\`$ref\` is not a repository (expected repo, owner/repo, host/owner/repo or https://host/owner/repo)"
-  case "$ref" in
-    *://*)
-      { iss_split_url "$ref" && iss_valid_path "$URL_HOST/$URL_OWNER/$URL_REPO"; } || iss_usage_die "$bad"
-      return 0
-      ;;
-  esac
-  rest=${ref%/}
-  case "$rest" in '' | *//* | /* | */*/*/*) iss_usage_die "$bad" ;; esac
-  iss_valid_path "$rest" || iss_usage_die "$bad"
+  iss_github_ref_parsed repo "$1" ||
+    iss_usage_die "\`$1\` is not a repository (expected repo, owner/repo, host/owner/repo or https://host/owner/repo)"
 }
 
 # iss_same_host <host>: whether <host> is the current repository's host.
@@ -816,15 +772,18 @@ iss_peek_link_prefix() {
   iss_valid_link_prefix "$ISS_LINK_PREFIX" || iss_err_invalid_link_prefix "$ISS_LINK_PREFIX"
 }
 
-# iss_names_repo <operand>: whether the operand names a repository of its own
-# -- a URL, or a repository part before a # -- rather than being N or #N, with
-# or without ISS_LINK_PREFIX. A malformed operand with neither names none.
+# iss_names_repo <operand>: whether the operand, which iss_check_operand_syntax
+# accepts, names a repository of its own rather than being N, #N or
+# ISS_LINK_PREFIX followed by N.
 iss_names_repo() {
-  local num=${1#"$ISS_LINK_PREFIX"}
-  num=${num#'#'}
-  iss_is_digits "$num" && return 1
-  case "$1" in https://* | ?*'#'*) return 0 ;; esac
-  return 1
+  iss_check_operand_syntax "$1"
+  ! iss_names_no_repo
+}
+
+# iss_names_no_repo: whether the reference github-ref last parsed under the
+# placeholder context left out its whole repository.
+iss_names_no_repo() {
+  [ "$GR_HOST/$GR_OWNER/$GR_REPO" = "$ISS_PH_HOST/$ISS_PH_OWNER/$ISS_PH_REPO" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -893,85 +852,47 @@ EOF
 # Operands.
 # ---------------------------------------------------------------------------
 
-# iss_parse_operand <operand> [<host> <owner> <repo>]: the one parser of the
-# issue-reference grammar. Sets OP_HOST, OP_OWNER, OP_REPO and OP_NUMBER from
-#   N, #N                          issue N in the given repository, or in the
-#                                  current one when none is given; N may
-#                                  carry the repo-config's issue-link-prefix
-#   <repository>#N                 issue N in the repository, its part before
-#                                  the last # in any form iss_parse_repo takes
-#   https://host/owner/repo/issues/N
-#                                  the same as host/owner/repo#N; a trailing /
-#                                  is ignored
-# so every reference iss_ref prints is accepted back. The operand is checked by
+# iss_parse_operand <operand> [<host> <owner> <repo>]: parse an issue
+# reference, in any form `github-ref item` takes, into OP_HOST, OP_OWNER,
+# OP_REPO and OP_NUMBER. N, #N and ISS_LINK_PREFIX followed by N name issue N
+# in the given repository, or in the current one when none is given; any
+# other form names its own repository, and takes the parts it leaves out
+# from the current one, through iss_take_current. Every reference iss_ref
+# prints is accepted back. The operand is checked by
 # iss_check_operand_syntax first, so a pull request's URL and any malformed
 # operand are refused before any gh call.
 iss_parse_operand() {
-  local op=$1 num rest
-  iss_check_operand_syntax "$op"
-  num=${op#"$ISS_LINK_PREFIX"}
-  num=${num#'#'}
-  if iss_is_digits "$num"; then
+  iss_check_operand_syntax "$1"
+  OP_NUMBER=$GR_NUMBER
+  if iss_names_no_repo; then
     OP_HOST=${2-$ISS_HOST}
     OP_OWNER=${3-$ISS_OWNER}
     OP_REPO=${4-$ISS_REPO}
-    OP_NUMBER=$num
     return 0
   fi
-  case "$op" in
-    *'#'*)
-      num=${op##*'#'}
-      iss_parse_repo "${op%'#'*}"
-      ;;
-    *)
-      rest=${op%/}
-      num=${rest##*/}
-      iss_split_url "${rest%/*/*}"
-      RP_HOST=$URL_HOST
-      RP_OWNER=$URL_OWNER
-      RP_REPO=$URL_REPO
-      ;;
-  esac
-  OP_HOST=$RP_HOST
-  OP_OWNER=$RP_OWNER
-  OP_REPO=$RP_REPO
-  OP_NUMBER=$num
+  iss_take_current "${1%'#'*}"
+  OP_HOST=$GR_HOST
+  OP_OWNER=$GR_OWNER
+  OP_REPO=$GR_REPO
 }
 
 # iss_check_operand_syntax <operand>: the syntax half of iss_parse_operand,
-# which makes no gh call. A pull request's URL is refused with
-# iss_err_pull_request, and an operand that is none of iss_parse_operand's
-# forms, or whose repository part iss_check_repo_syntax refuses, is a usage
-# error.
+# which makes no gh call; GR_HOST, GR_OWNER, GR_REPO and GR_NUMBER are left as
+# github-ref parsed them under the placeholder context. A reference github-ref
+# accepts only as a pull request is refused with iss_err_pull_request. Any
+# other it refuses is a usage error, naming the part before the last # when
+# a number follows that #, and the whole operand otherwise.
 iss_check_operand_syntax() {
-  local op=$1 num rest kind bad
-  bad="\`$op\` is not an issue reference (expected N, #N, repo#N, owner/repo#N, host/owner/repo#N or https://host/owner/repo/issues/N)"
-  num=${op#"$ISS_LINK_PREFIX"}
-  num=${num#'#'}
-  iss_is_digits "$num" && return 0
+  local op=$1
+  iss_github_ref_parsed item "$op" --type issue --prefix "$ISS_LINK_PREFIX" && return 0
+  ! iss_github_ref_parsed item "$op" --type pr --prefix "$ISS_LINK_PREFIX" || iss_err_pull_request "$op"
   case "$op" in
-    *'#'*)
-      num=${op##*'#'}
-      rest=${op%'#'*}
-      { [ -n "$rest" ] && iss_is_digits "$num"; } || iss_usage_die "$bad"
-      iss_check_repo_syntax "$rest"
+    ?*'#'*)
+      iss_is_digits "${op##*'#'}" &&
+        iss_usage_die "\`${op%'#'*}\` is not a repository (expected repo, owner/repo, host/owner/repo or https://host/owner/repo)"
       ;;
-    https://*)
-      rest=${op%/}
-      num=${rest##*/}
-      rest=${rest%/*}
-      kind=${rest##*/}
-      rest=${rest%/*}
-      { iss_is_digits "$num" && iss_split_url "$rest" && iss_valid_path "$URL_HOST/$URL_OWNER/$URL_REPO"; } ||
-        iss_usage_die "$bad"
-      case "$kind" in
-        issues) ;;
-        pull) iss_err_pull_request "$op" ;;
-        *) iss_usage_die "$bad" ;;
-      esac
-      ;;
-    *) iss_usage_die "$bad" ;;
   esac
+  iss_usage_die "\`$op\` is not an issue reference (expected N, #N, repo#N, owner/repo#N, host/owner/repo#N or https://host/owner/repo/issues/N)"
 }
 
 # iss_operand <operand>: iss_parse_operand, then iss_check_repo on the
@@ -1029,10 +950,10 @@ iss_operand_board_config() {
 # form an operand in this checkout resolves back to the same issue: #N in the
 # current repository, repo#N under its owner on its host, owner/repo#N on its
 # host, host/owner/repo#N on another. A repo spelled exactly as this checkout's
-# issue-link-prefix takes owner/repo#N under its owner too, since
-# iss_parse_operand strips the prefix from repo#N and reads #N in the current
-# repository. That prefix is ISS_HERE_LINK_PREFIX once iss_peek_link_prefix or
-# iss_load_config has run, and iss_read_link_prefix's otherwise.
+# issue-link-prefix takes owner/repo#N under its owner too, so no reference
+# printed here opens with the prefix followed by `#`. That prefix is
+# ISS_HERE_LINK_PREFIX once iss_peek_link_prefix or iss_load_config has run,
+# and iss_read_link_prefix's otherwise.
 iss_ref() {
   if ! iss_same_host "$1"; then
     printf '%s/%s/%s#%s' "$1" "$2" "$3" "$4"

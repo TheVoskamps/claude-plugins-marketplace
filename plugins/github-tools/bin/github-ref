@@ -1,0 +1,425 @@
+#!/usr/bin/env bash
+#
+# github-ref -- parse and validate a reference to a GitHub issue, pull
+# request or repository, and resolve a checkout's `origin` remote to the
+# repository it names. It is the one holder of the reference grammar and
+# of the rules each part of a reference is checked against; it carries no
+# policy about which type or which forms a caller accepts.
+#
+# Usage:
+#   github-ref item --type issue|pr [--in <host>/<owner>/<repo>] [--prefix <P>] [--] <text>
+#   github-ref repo [--in <host>/<owner>/<repo>] [--] <text>
+#   github-ref name [--] <text>
+#   github-ref origin
+#
+# An item reference is one of
+#   N, #N, and <P>N under --prefix <P>
+#                                   item N in the context repository
+#   <repository>#N                  item N in that repository, <repository>
+#                                   being any repository reference below
+#   https://host/owner/repo/issues/N
+#   https://host/owner/repo/pull/N  the URL's path segment states the type;
+#                                   a trailing / is ignored
+# Every form takes the --type the caller passes, except that a URL whose
+# path names the other type is malformed.
+#
+# A repository reference is one of
+#   repo                            under the context repository's owner, on
+#                                   its host
+#   owner/repo                      on the context repository's host
+#   host/owner/repo
+#   https://host/owner/repo
+# with one trailing / ignored.
+#
+# The parts:
+#   owner  ASCII letters, digits and single hyphens, with no leading,
+#          trailing or doubled hyphen, optionally followed by one `_` and a
+#          suffix of ASCII letters and digits, at most 39 characters in all
+#   repo   ASCII letters, digits, `.`, `_` and `-`, at most 100 characters,
+#          and neither `.` nor `..`, which GitHub reserves
+#   host   at most 253 characters of `.`-separated labels, each 1 to 63
+#          ASCII letters, digits and hyphens, none beginning or ending with
+#          a hyphen
+# Every character check spells its characters out rather than giving a
+# bracket range, because what a range matches follows the locale's
+# collation: under a UTF-8 one a range admits letters such as `é`.
+#
+# The context repository is --in's when given. Otherwise it is the
+# checkout's, resolved as `origin` resolves it, and only when the text
+# leaves a part out: the text's syntax is checked first, and a text that
+# names every part makes no gh call. --prefix is the context repository's
+# issue-link-prefix; github-ref reads no repo-config, so without --prefix
+# it accepts N and #N and no <P>N.
+#
+# `origin`:
+#   1. reads `git remote get-url origin`;
+#   2. rewrites that URL to https://<host>/<path>, dropping any scheme,
+#      user and port, for a `<scheme>://` URL and for an scp-like
+#      `[<user>@]<host>:<path>` one, leaving any other URL as it is. The host
+#      of an ssh URL -- an scp-like one, or one whose scheme is ssh, git+ssh
+#      or ssh+git -- is the hostname `ssh -G <host>` reports, so an alias a
+#      `Host` block renames becomes the host it reaches, and ssh.github.com
+#      becomes github.com; where ssh is not on PATH, fails or reports no
+#      hostname, the host is used as written;
+#   3. hands that URL to `gh repo view <url> --json url --jq .url`, which
+#      keeps gh from choosing another remote by its own priority rules;
+#   4. splits the URL gh returned, one trailing / ignored, into host,
+#      owner and repository at its first two `/` after the scheme, and
+#      checks each against the part rules, in that order.
+#
+# Exit statuses:
+#   0  one line on stdout, its fields separated by `|`:
+#      host|owner|repo|number|type for `item`, type being `issue` or `pr`;
+#      host|owner|repo for `repo` and `origin`; nothing for `name`. No part
+#      can contain `|`, and no field is ever omitted.
+#   2  the text or an argument is malformed, `item` has no --type, or a URL
+#      names the other type; nothing is printed and no gh call is made.
+#      Also, for `origin` and for a short form resolved through it, the
+#      repository gh returned has a host, owner or name the part rules
+#      refuse. In that one case `origin` prints one line,
+#      <the URL gh returned>|<the refused part>; a short form prints
+#      nothing.
+#   3  the checkout's repository is needed and cannot be resolved: not in
+#      a git work tree, no `origin` remote, or gh cannot resolve its URL.
+#      Nothing is printed.
+# Nothing is ever written to stderr, so each caller words its own refusal.
+#
+# Runs under the bash 3.2 macOS ships, and needs git and gh on PATH only
+# where the context repository is resolved.
+
+set -u
+
+readonly LETTERS=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
+readonly DIGITS=0123456789
+
+# is_number <text> -- whether <text> is one or more decimal digits.
+is_number() {
+  case "$1" in
+    '' | *[!$DIGITS]*) return 1 ;;
+  esac
+  return 0
+}
+
+# valid_name <name> -- whether <name> is a repository name.
+valid_name() {
+  case "$1" in
+    '' | . | .. | *[!$LETTERS$DIGITS._-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 100 ]
+}
+
+# valid_owner <owner> -- whether <owner> is a user or organization name.
+valid_owner() {
+  local base=$1 suffix
+  [ "${#1}" -le 39 ] || return 1
+  case "$1" in
+    *_*)
+      base=${1%%_*}
+      suffix=${1#*_}
+      case "$suffix" in
+        '' | *[!$LETTERS$DIGITS]*) return 1 ;;
+      esac
+      ;;
+  esac
+  case "$base" in
+    '' | -* | *- | *--* | *[!$LETTERS$DIGITS-]*) return 1 ;;
+  esac
+  return 0
+}
+
+# valid_host <host> -- whether <host> is a DNS hostname.
+valid_host() {
+  local rest=$1. label
+  [ -n "$1" ] && [ "${#1}" -le 253 ] || return 1
+  while [ -n "$rest" ]; do
+    label=${rest%%.*}
+    case "$label" in
+      '' | -* | *- | *[!$LETTERS$DIGITS-]*) return 1 ;;
+    esac
+    [ "${#label}" -le 63 ] || return 1
+    rest=${rest#*.}
+  done
+  return 0
+}
+
+# split_repo <reference> -- split a repository reference into R_HOST,
+# R_OWNER and R_REPO, leaving empty each part it leaves out, and check
+# every part it names. Returns 1 on a malformed reference.
+split_repo() {
+  local rest
+  R_HOST=
+  R_OWNER=
+  R_REPO=
+  case "$1" in
+    https://*)
+      rest=${1#https://}
+      rest=${rest%/}
+      case "$rest" in */*/*/*) return 1 ;; */*/*) ;; *) return 1 ;; esac
+      ;;
+    *://*) return 1 ;;
+    *)
+      rest=${1%/}
+      case "$rest" in */*/*/*) return 1 ;; esac
+      ;;
+  esac
+  case "$rest" in
+    */*/*)
+      R_HOST=${rest%%/*}
+      rest=${rest#*/}
+      R_OWNER=${rest%/*}
+      R_REPO=${rest#*/}
+      valid_host "$R_HOST" || return 1
+      valid_owner "$R_OWNER" || return 1
+      ;;
+    */*)
+      R_OWNER=${rest%/*}
+      R_REPO=${rest#*/}
+      valid_owner "$R_OWNER" || return 1
+      ;;
+    *) R_REPO=$rest ;;
+  esac
+  valid_name "$R_REPO"
+}
+
+# ssh_hostname <host> -- the hostname ssh connects to for <host>, as
+# `ssh -G` reports it; <host> itself when ssh is not on PATH, fails, or
+# reports no hostname.
+ssh_hostname() {
+  local out key value real=
+  if command -v ssh >/dev/null 2>&1 && out=$(ssh -G -- "$1" </dev/null 2>/dev/null); then
+    while read -r key value; do
+      if [ "$key" = hostname ]; then real=$value; fi
+    done <<<"$out"
+  fi
+  case "$real" in
+    '') real=$1 ;;
+    [Ss][Ss][Hh].[Gg][Ii][Tt][Hh][Uu][Bb].[Cc][Oo][Mm]) real=github.com ;;
+  esac
+  printf '%s\n' "$real"
+}
+
+# https_url <remote-url> -- the remote URL as https://<host>/<path>, as
+# step 2 of `origin` above states. gh's argument parser takes an scp-like
+# URL only when it begins `git@`, and splits any other one as OWNER/REPO,
+# so every one is rewritten.
+https_url() {
+  local host path ssh=0
+  case "$1" in
+    ssh://* | git+ssh://* | ssh+git://*)
+      ssh=1
+      ;;
+  esac
+  case "$1" in
+    *://*)
+      host=${1#*://}
+      path=
+      case "$host" in */*) path=${host#*/} ;; esac
+      host=${host%%/*}
+      ;;
+    *:*)
+      host=${1%%:*}
+      path=${1#*:}
+      case "$host" in
+        */*)
+          printf '%s\n' "$1"
+          return
+          ;;
+      esac
+      ssh=1
+      ;;
+    *)
+      printf '%s\n' "$1"
+      return
+      ;;
+  esac
+  host=${host##*@}
+  host=${host%%:*}
+  if [ "$ssh" -eq 1 ]; then host=$(ssh_hostname "$host"); fi
+  printf 'https://%s/%s\n' "$host" "${path#/}"
+}
+
+# resolve_origin -- set O_HOST, O_OWNER and O_REPO to the checkout's
+# repository. Returns 3 when it cannot be resolved, and 2 when a part of
+# what gh returned is refused, with O_URL the URL gh returned and O_PART
+# the refused part.
+resolve_origin() {
+  local url rest
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 3
+  url=$(git remote get-url origin 2>/dev/null) || return 3
+  [ -n "$url" ] || return 3
+  O_URL=$(gh repo view "$(https_url "$url")" --json url --jq .url 2>/dev/null) || return 3
+  [ -n "$O_URL" ] || return 3
+  rest=${O_URL#https://}
+  rest=${rest%/}
+  O_PART=$O_URL
+  case "$O_URL" in https://*) ;; *) return 2 ;; esac
+  case "$rest" in */*/*) ;; *) return 2 ;; esac
+  O_HOST=${rest%%/*}
+  rest=${rest#*/}
+  O_OWNER=${rest%%/*}
+  O_REPO=${rest#*/}
+  O_PART=$O_HOST
+  valid_host "$O_HOST" || return 2
+  O_PART=$O_OWNER
+  valid_owner "$O_OWNER" || return 2
+  O_PART=$O_REPO
+  valid_name "$O_REPO" || return 2
+}
+
+# context -- set C_HOST, C_OWNER and C_REPO to the context repository:
+# --in's, or else the checkout's. Exits as resolve_origin returns, printing
+# nothing, when the checkout's cannot be used.
+context() {
+  local rc=0
+  if [ -n "$in_given" ]; then
+    C_HOST=$R_IN_HOST
+    C_OWNER=$R_IN_OWNER
+    C_REPO=$R_IN_REPO
+    return
+  fi
+  resolve_origin || rc=$?
+  [ "$rc" -eq 0 ] || exit "$rc"
+  C_HOST=$O_HOST
+  C_OWNER=$O_OWNER
+  C_REPO=$O_REPO
+}
+
+# fill -- take the host, and the owner when R_OWNER is empty too, from the
+# context repository, resolving it only when R_HOST is empty. split_repo
+# always sets R_REPO, and leaves R_HOST empty whenever R_OWNER is.
+fill() {
+  [ -z "$R_HOST" ] || return 0
+  context
+  R_HOST=$C_HOST
+  [ -n "$R_OWNER" ] || R_OWNER=$C_OWNER
+}
+
+sub=${1-}
+[ "$#" -eq 0 ] || shift
+type=
+type_given=
+in_given=
+prefix=
+prefix_given=
+text=
+text_given=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --type | --in | --prefix)
+      [ "$#" -ge 2 ] || exit 2
+      case "$1" in
+        --type) type=$2 type_given=1 ;;
+        --in)
+          in_given=$2
+          [ -n "$in_given" ] || exit 2
+          ;;
+        --prefix) prefix=$2 prefix_given=1 ;;
+      esac
+      shift 2
+      continue
+      ;;
+    --)
+      shift
+      [ "$#" -le 1 ] && [ -z "$text_given" ] || exit 2
+      if [ "$#" -eq 1 ]; then
+        text=$1
+        text_given=1
+      fi
+      break
+      ;;
+    *)
+      [ -z "$text_given" ] || exit 2
+      text=$1
+      text_given=1
+      ;;
+  esac
+  shift
+done
+
+case "$sub" in
+  item)
+    [ -n "$text_given" ] && [ -n "$type_given" ] || exit 2
+    case "$type" in issue | pr) ;; *) exit 2 ;; esac
+    ;;
+  repo)
+    [ -n "$text_given" ] && [ -z "$type_given" ] && [ -z "$prefix_given" ] || exit 2
+    ;;
+  name)
+    [ -n "$text_given" ] && [ -z "$type_given$prefix_given$in_given" ] || exit 2
+    valid_name "$text" || exit 2
+    exit 0
+    ;;
+  origin)
+    [ -z "$text_given$type_given$prefix_given$in_given" ] || exit 2
+    rc=0
+    resolve_origin || rc=$?
+    case "$rc" in
+      0) printf '%s|%s|%s\n' "$O_HOST" "$O_OWNER" "$O_REPO" ;;
+      2) printf '%s|%s\n' "$O_URL" "$O_PART" ;;
+    esac
+    exit "$rc"
+    ;;
+  *) exit 2 ;;
+esac
+
+if [ -n "$in_given" ]; then
+  case "$in_given" in *://* | */) exit 2 ;; */*/*) ;; *) exit 2 ;; esac
+  split_repo "$in_given" || exit 2
+  R_IN_HOST=$R_HOST
+  R_IN_OWNER=$R_OWNER
+  R_IN_REPO=$R_REPO
+fi
+
+if [ "$sub" = repo ]; then
+  split_repo "$text" || exit 2
+  fill
+  printf '%s|%s|%s\n' "$R_HOST" "$R_OWNER" "$R_REPO"
+  exit 0
+fi
+
+number=
+short=
+if is_number "$text"; then
+  number=$text
+  short=1
+elif is_number "${text#'#'}" && [ "${text#'#'}" != "$text" ]; then
+  number=${text#'#'}
+  short=1
+elif [ -n "$prefix" ] && [ "${text#"$prefix"}" != "$text" ] && is_number "${text#"$prefix"}"; then
+  number=${text#"$prefix"}
+  short=1
+fi
+
+if [ -n "$short" ]; then
+  context
+  R_HOST=$C_HOST
+  R_OWNER=$C_OWNER
+  R_REPO=$C_REPO
+else
+  case "$text" in
+    *'#'*)
+      number=${text##*'#'}
+      is_number "$number" || exit 2
+      [ -n "${text%'#'*}" ] || exit 2
+      split_repo "${text%'#'*}" || exit 2
+      ;;
+    https://*)
+      rest=${text#https://}
+      rest=${rest%/}
+      case "$rest" in */*/*/*/*/*) exit 2 ;; */*/*/*/*) ;; *) exit 2 ;; esac
+      number=${rest##*/}
+      rest=${rest%/*}
+      kind=${rest##*/}
+      rest=${rest%/*}
+      is_number "$number" || exit 2
+      case "$kind:$type" in
+        issues:issue | pull:pr) ;;
+        *) exit 2 ;;
+      esac
+      split_repo "https://$rest" || exit 2
+      ;;
+    *) exit 2 ;;
+  esac
+  fill
+fi
+printf '%s|%s|%s|%s|%s\n' "$R_HOST" "$R_OWNER" "$R_REPO" "$number" "$type"

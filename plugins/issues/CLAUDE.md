@@ -19,10 +19,11 @@
   and error wording the scripts own, on purpose: under `issues: Jira`
   the scripts refuse and that prose runs instead. A change to either
   edits both.
-- The issue-reference grammar is the one `github-prs` parses for a PR,
-  with `issues` where a PR URL has `pull`, and each plugin carries its
-  own parser; a change to the grammar edits both. Every verb flag is
-  `--long`, so an argument with a single leading `-` is an operand.
+- No file in this plugin holds a reference grammar or a check on a host,
+  owner or repository name; a reference is parsed by running
+  `github-ref`.
+- Every verb flag is `--long`, so an argument with a single leading `-`
+  is an operand.
 - No reader contract names a consumer, except that the
   `issue-branch-naming-prefix` entry names `/issues:issue-branch-prefix`,
   because the mode alone is not a prefix.

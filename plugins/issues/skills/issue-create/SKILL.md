@@ -3,6 +3,8 @@ name: issue-create
 description: Create a new issue end-to-end (title, body, type, priority, size, status, parent, assignees, labels) in a single invocation, in this repo or, named positionally, in another.
 ---
 
+# Issue Create
+
 Create a new issue with all metadata set in one shot: title, body,
 issue type, parent link, priority, size, status, assignees, and
 labels — in the current repo, or in the repo a leading `<repo>`
@@ -20,8 +22,7 @@ printed.
 
 - `<repo>` (optional): file the issue in this repository instead of
   the current one, written in any form `skills/lib/issue.md` →
-  "Repositories and issue references" lists — `repo`, `owner/repo`,
-  `host/owner/repo` or `https://host/owner/repo`. The script reads
+  "Repositories and issue references" states. The script reads
   that repo's `.issues/repo-config.md` from its default branch,
   validates it and uses it exactly as a local create uses the local
   one, and reads nothing from the current repo's repo-config. A target

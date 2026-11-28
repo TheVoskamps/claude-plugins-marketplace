@@ -104,8 +104,8 @@ When the *same rule* ends up restated in several plugins because the
 sandbox blocks a shared `Read`, the duplication is the defect — a
 convention that "everyone keeps their copy in step" is a maintenance
 contract for it, not a fix. Move the **mechanism** into a skill in the
-plugin that owns the concept and have the others invoke it by its
-namespaced name (constraint 2), with a `dependencies` edge so the
+plugin that owns the concept and have other skills and agents invoke it
+by its namespaced name (constraint 2), with a `dependencies` edge so the
 skill is present (constraint 3).
 
 Only the mechanism moves. Each consumer keeps its own **policy** about

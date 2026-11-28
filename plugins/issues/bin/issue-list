@@ -98,8 +98,7 @@ row_config() {
 # https://host/orgs/owner/projects/N or its users/ form, or one of its views',
 # the same followed by /views/V, a trailing / ignored, into PU_HOST, PU_OWNER,
 # PU_NUMBER and PU_VIEW, which is empty without a view. Returns 1 on any other
-# shape, or when the host or owner is one iss_valid_host or iss_valid_owner
-# refuses.
+# shape, or when iss_valid_owner refuses the owner on the host.
 parse_project_url() {
   local rest=${1%/} host kind owner number view=
   case "$rest" in https://*) rest=${rest#https://} ;; *) return 1 ;; esac
@@ -119,7 +118,7 @@ parse_project_url() {
   owner=${rest%%/*}
   number=${rest##*/}
   case "$kind" in orgs | users) ;; *) return 1 ;; esac
-  { iss_is_digits "$number" && iss_valid_host "$host" && iss_valid_owner "$owner"; } || return 1
+  { iss_is_digits "$number" && iss_valid_owner "$owner" "$host"; } || return 1
   PU_HOST=$host
   PU_OWNER=$owner
   PU_NUMBER=$number
@@ -240,23 +239,10 @@ if [ "$board_named" = yes ]; then
   if [ "$target_set" = yes ]; then
     t=${target%/}
     case "$t" in
-      *://*)
-        iss_check_repo_syntax "$target"
-        iss_split_url "$target"
-        t_host=$URL_HOST
-        t_owner=$URL_OWNER
-        scope=yes
-        ;;
-      */*/*)
-        iss_check_repo_syntax "$target"
-        t_host=${t%%/*}
-        t=${t#*/}
-        t_owner=${t%/*}
-        scope=yes
-        ;;
       */*)
         iss_check_repo_syntax "$target"
-        t_owner=${t%/*}
+        [ "$GR_HOST" = "$ISS_PH_HOST" ] || t_host=$GR_HOST
+        t_owner=$GR_OWNER
         scope=yes
         ;;
       *)
@@ -282,14 +268,14 @@ if [ "$board_named" = yes ]; then
     host=$url_host
     owner=$url_owner
   elif [ "$scope" = yes ]; then
-    host=$RP_HOST
-    owner=$RP_OWNER
+    host=$GR_HOST
+    owner=$GR_OWNER
   else
     host=$ISS_HOST
     owner=$t_owner
   fi
   repo_term=
-  [ "$scope" != yes ] || repo_term="repo:$RP_OWNER/$RP_REPO "
+  [ "$scope" != yes ] || repo_term="repo:$GR_OWNER/$GR_REPO "
   # No repo-config governs the run: the local one only spells the references
   # printed, each row's own supplies its priority and size, and the board
   # supplies the status field.
@@ -331,9 +317,9 @@ else
         ;;
     esac
     iss_parse_repo "$target"
-    host=$RP_HOST
-    owner=$RP_OWNER
-    repo=$RP_REPO
+    host=$GR_HOST
+    owner=$GR_OWNER
+    repo=$GR_REPO
     # A host/owner/repo or URL operand leaves the current repository unresolved,
     # and each printed reference is the shortest form relative to it.
     iss_try_current_repo || :

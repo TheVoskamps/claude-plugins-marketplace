@@ -126,9 +126,8 @@ optional there and bounds that selection rather than naming a round.
   several hosts and the same owner/repo on two of them is two
   repositories, then `#` and its number. Pass the reference you were
   given; never resolve the repository yourself. A bare number, or a
-  reference without a host, is a usage error. Each of host, owner and
-  repo may hold only letters, digits, `.`, `_` and `-`, and none may be
-  `.` or `..`.
+  reference without a host, is a usage error, as is one whose host,
+  owner or repo `github-ref` refuses.
 - `--round <n>` — a number. Rounds count review passes from 1, and
   **`--round 0` is valid**: the pre-loop seed, settled by the
   orchestrator before any implementer ran.
@@ -136,7 +135,7 @@ optional there and bounds that selection rather than naming a round.
 `list`'s repository is an optional operand, never a flag:
 `<host>/<owner>/<repo>`, `https://<host>/<owner>/<repo>`, or a shorter
 `<owner>/<repo>` or `<repo>`. Omitted, it is the current repository —
-the one the checkout's remote names — and a shorter form takes the
+the one the checkout's `origin` remote names — and a shorter form takes the
 segments it omits from the current repository. The script resolves the
 current repository itself; pass the operand as you were given it, or
 none.

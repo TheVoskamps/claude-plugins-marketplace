@@ -70,6 +70,8 @@ set -uo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PERSIST="$TEST_DIR/../sdlc-agent-result-persist"
+# github-ref, which the github-tools plugin puts on PATH beside this one.
+PATH="$(cd "$TEST_DIR/../../../github-tools/bin" && pwd):$PATH"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/sdlc-agent-result-persist-test.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
 PR='h.example/o/r#7'

@@ -117,10 +117,10 @@ else
       ;;
   esac
   iss_parse_repo "$target"
+  host=$GR_HOST
+  owner=$GR_OWNER
+  repo=$GR_REPO
   iss_try_current_repo || :
-  host=$RP_HOST
-  owner=$RP_OWNER
-  repo=$RP_REPO
   iss_load_target_config "$host" "$owner" "$repo" || no_target_config=yes
 fi
 

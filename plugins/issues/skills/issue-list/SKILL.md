@@ -22,7 +22,7 @@ none until the board gives it one.
 
 - `<owner>/<repo>`: list this repository's issues instead of the
   current one's, written in any form `skills/lib/issue.md` →
-  "Repositories and issue references" lists, a bare single word being a
+  "Repositories and issue references" states, a bare single word being a
   repository under the current owner. Without `--project` or a URL its
   own repo-config governs the run, and the board listed is the one its
   `github-project:` block names. With either, the board listed is the

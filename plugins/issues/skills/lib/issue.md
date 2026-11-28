@@ -18,35 +18,18 @@ fixed message before it reads or writes an issue, and the verb's
 
 ## Repositories and issue references
 
-A verb argument that names a GitHub repository takes one of these
-forms, resolved against the current repository — the one the
-checkout's remote names, on that remote's host:
-
-| Form | Repository |
-| --- | --- |
-| `repo` | `repo` under the current repository's owner, on its host |
-| `owner/repo` | that repository, on the current repository's host |
-| `host/owner/repo` | that repository, on that host |
-| `https://host/owner/repo` | the same as `host/owner/repo`; a trailing `/` is ignored |
-
-Outside a git checkout there is no current repository: `repo` is a
-usage error, and `owner/repo` goes to `gh`'s default host.
-
-An argument that names an existing issue — every verb's issue operand,
-and `/issue-create --parent` — takes one of these forms:
-
-| Form | Issue |
-| --- | --- |
-| `N`, `#N` | issue `N` in the current repository; `N` may carry the repo-config's `issue-link-prefix` |
-| `repo#N`, `owner/repo#N`, `host/owner/repo#N` | issue `N` in the repository, in any form above |
-| `https://host/owner/repo/issues/N` | the same as `host/owner/repo#N`; a trailing `/` is ignored |
-
-Each part of a repository is held to what GitHub and DNS allow there,
-and any other part is a usage error: a repository name is 1 to 100
-ASCII letters, digits, `.`, `-` and `_`, any of them first; an owner
-is 1 to 39 ASCII letters, digits and `-`, not starting with `-` and
-with no `--`; a host is a DNS hostname, of `.`-separated labels that
-neither start nor end with `-`.
+A verb argument that names a GitHub repository takes any repository
+reference `github-ref repo` parses, and one that names an existing
+issue — every verb's issue operand, and `/issue-create --parent` — any
+issue reference `github-ref item --type issue` parses, `N` carrying
+the repo-config's `issue-link-prefix` included. `github-ref` is the
+github-tools plugin's, and holds the forms and the rules each part of
+a reference is checked against; a reference it refuses is a usage
+error. A form that leaves out its repository, owner or host takes it
+from the current repository — the one the checkout's `origin` remote
+names. Outside a git checkout, or with no `origin`, there is no
+current repository: `repo` and `repo#N` are usage errors, and
+`owner/repo` goes to `gh`'s default host.
 
 The verbs take issues only. An operand that names a pull request — a
 `https://host/owner/repo/pull/N` URL before any call, a number once it
@@ -76,12 +59,11 @@ repository's `.issues/repo-config.md`, read from its default branch:
 - with no repo-config there, every other verb proceeds.
 
 A printed issue reference takes the shortest form that names the
-issue back through the forms above: `#N` in the current repository,
-`repo#N` under its owner on its host, `owner/repo#N` on its host, and
-`host/owner/repo#N` on another host. A `repo` spelled exactly as the
-current repo-config's `issue-link-prefix` takes `owner/repo#N` under
-its owner too, because `repo#N` then reads as a prefixed `#N` in the
-current repository.
+issue back: `#N` in the current repository, `repo#N` under its owner
+on its host, `owner/repo#N` on its host, and `host/owner/repo#N` on
+another host. A `repo` spelled exactly as the current repo-config's
+`issue-link-prefix` takes `owner/repo#N` under its owner too, so no
+printed reference opens with the prefix followed by `#`.
 
 ## Repo-config parsing
 
@@ -386,7 +368,7 @@ against the tracker block:
 
 This path acts only on issues of the current repository, the one whose
 `jira:` block it reads: an operand naming that repository in any form
-"Repositories and issue references" lists is issue `N` there, normalized
+"Repositories and issue references" states is issue `N` there, normalized
 as "Preconditions" step 3 says. An operand in another repository is
 governed by that repository's repo-config, never by this one's, so this
 path cannot act on it: it aborts with the "Operand in another

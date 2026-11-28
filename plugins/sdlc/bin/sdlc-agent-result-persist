@@ -232,87 +232,86 @@ if [ "$operands" -gt 0 ]; then
   [ "$operands" -eq 1 ] || die "--mode list takes at most one repository"
 fi
 
-# split_repo <host/owner/repo> <message>: sets repo_ref to the reference
-# whole and host, owner and repo to its segments, each one level of the
-# composed path, or dies with <message> when the reference is not three
-# segments. The host is a segment because one machine holds state for
-# repositories on several hosts, and the same owner/repo on two of them
-# is two repositories. A segment holding anything but letters, digits,
-# ., _ and - could add a directory level, and a segment of . or .. names
-# no directory of its own: .. climbs out of the level it stands at, and
-# . lets another segment climb further, so either could compose a path
-# outside the state root that every mode reads, writes or deletes under.
-split_repo() {
+# The repository a reference names is the directory its state lives in,
+# <host>/<owner>/<repo> under the state root, each part one level of the
+# composed path. The host is a part because one machine holds state for
+# repositories on several hosts, and the same owner/repo on two of them is
+# two repositories. github-ref, which the github-tools plugin puts on
+# PATH, parses every reference and checks each part, and no part it
+# accepts holds a `/` or is `.` or `..`, so none composes a path outside
+# the state root that every mode reads, writes or deletes under.
+
+# refused <reference> <message>: die for a reference github-ref refused,
+# with <message> when it is not three non-empty segments, the shape of a
+# repository named in full, and otherwise with the refusal naming its
+# segments. The shape picks the message, and nothing else.
+refused() {
   case "$1" in
     */*/*/* | *//* | /* | */) die "$2" ;;
-    ?*/?*/?*) ;;
-    *) die "$2" ;;
+    ?*/?*/?*) die "a repository's segments may hold only letters, digits, ., _ and -, and none may be . or ..: $1" ;;
   esac
-  repo_ref=$1
-  host=${1%%/*}
-  owner=${1#*/}
-  owner=${owner%/*}
-  repo=${1##*/}
-  for given in "$host" "$owner" "$repo"; do
-    case "$given" in
-      *[!A-Za-z0-9._-]* | . | ..)
-        die "a repository's segments may hold only letters, digits, ., _ and -, and none may be . or ..: $repo_ref"
-        ;;
-    esac
-  done
+  die "$2"
 }
 
-# current_repo: the current repository as host/owner/repo, from the URL
-# gh reports for the checkout, whose remote names the host. Dies when gh
-# cannot resolve it.
-current_repo() {
-  url=$(gh repo view --json url --jq .url || exit) ||
-    die "cannot resolve the current repository with gh repo view"
-  url=${url#https://}
-  printf '%s\n' "${url%/}"
+# github_ref_failed <status>: die for a github-ref exit its contract does
+# not name, such as bash's 127 when it is not on PATH.
+github_ref_failed() {
+  die "github-ref failed (exit $1); sdlc needs the github-tools plugin enabled"
 }
 
-# list names its repository by the operand: host/owner/repo, an
-# https://host/owner/repo URL, or a shorter form whose missing leading
-# segments come from the current repository; with no operand, list reads
-# the current repository itself. Every other mode names its PR by --pr,
-# host/owner/repo#n, the host included and nothing taken from the
-# checkout.
+# list names its repository by the operand, in any form `github-ref repo`
+# takes, a shorter form taking its missing parts from the checkout's
+# repository; with no operand, list reads the checkout's repository
+# itself, as `github-ref origin` resolves it. Every other mode names its
+# PR by --pr, host/owner/repo#n, the host included and nothing taken from
+# the checkout: a reference github-ref reads back other than as it was
+# spelled left a part out, or spelled one in another form.
+rc=0
 if [ "$mode" = list ]; then
   [ -z "$pr_ref" ] || die "--pr is not accepted in --mode list: $pr_ref"
   bad_operand="--mode list takes ((<host>/)<owner>/)<repo> or https://<host>/<owner>/<repo>: $operand"
-  case "$operand" in
-    https://*)
+  if [ -z "$operand" ]; then
+    line=$(github-ref origin || exit) || rc=$?
+  else
+    line=$(github-ref repo -- "$operand" || exit) || rc=$?
+  fi
+  case "$rc:$operand" in
+    0:*) ;;
+    3:*) die "cannot resolve the current repository with gh repo view" ;;
+    2:)
+      given=${line%|*}
+      refused "${given#https://}" "$bad_operand"
+      ;;
+    2:https://*)
       given=${operand#https://}
-      given=${given%/}
+      refused "${given%/}" "$bad_operand"
       ;;
-    *://* | -*) die "$bad_operand" ;;
-    */*/*) given=$operand ;;
-    */*)
-      [ -n "${operand%%/*}" ] || die "$bad_operand"
-      here=$(current_repo) || exit $?
-      given=${here%%/*}/$operand
-      ;;
-    '') given=$(current_repo) || exit $? ;;
-    *)
-      here=$(current_repo) || exit $?
-      given=${here%/*}/$operand
-      ;;
+    2:*) refused "$operand" "$bad_operand" ;;
+    *) github_ref_failed "$rc" ;;
   esac
-  split_repo "$given" "$bad_operand"
+  IFS='|' read -r host owner repo <<<"$line"
 elif [ "$mode" != repos ]; then
   [ -n "$pr_ref" ] || die "--pr is required"
   bad_pr="--pr takes <host>/<owner>/<repo>#<n>: $pr_ref"
-  case "$pr_ref" in
-    *'#'*) ;;
-    *) die "$bad_pr" ;;
+  line=$(github-ref item --type pr --in "$SP_PH_REPO" -- "$pr_ref" || exit) || rc=$?
+  case "$rc" in
+    0) ;;
+    2)
+      case "$pr_ref" in
+        *'#'*) ;;
+        *) die "$bad_pr" ;;
+      esac
+      case "${pr_ref##*'#'}" in
+        '' | *[!0123456789]*) die "$bad_pr" ;;
+      esac
+      refused "${pr_ref%'#'*}" "$bad_pr"
+      ;;
+    *) github_ref_failed "$rc" ;;
   esac
-  pr=${pr_ref##*'#'}
-  case "$pr" in
-    '' | *[!0-9]*) die "$bad_pr" ;;
-  esac
-  split_repo "${pr_ref%'#'*}" "$bad_pr"
+  IFS='|' read -r host owner repo pr _ <<<"$line"
+  [ "$pr_ref" = "$host/$owner/$repo#$pr" ] || die "$bad_pr"
 fi
+[ "$mode" = repos ] || repo_ref=$host/$owner/$repo
 
 # A mode refuses an identifying flag it does not act at: delete removes
 # a whole PR's directory, print-root names it, agent and print-agents
@@ -545,7 +544,7 @@ write_repo_yml() {
 }
 
 # State written before the host was part of the path moves to this
-# repository's directory, host from the repository split_repo parsed,
+# repository's directory, host from the repository github-ref parsed,
 # before any mode reads or writes. A failure exits 2, as write_repo_yml's
 # does.
 migrate_old_layout() {

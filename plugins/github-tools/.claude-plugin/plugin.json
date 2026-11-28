@@ -1,0 +1,9 @@
+{
+  "name": "github-tools",
+  "description": "How a GitHub item is named: the github-ref executable parses and validates issue, pull-request and repository references against one grammar and one set of host, owner and repository-name rules, and resolves a checkout's origin remote to the repository it names, for other plugins' scripts to call.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Edwin Voskamp",
+    "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps"
+  }
+}

@@ -47,6 +47,9 @@ const READINESS_SKILL = `${PLUGIN}:orchestrate-readiness`;
 const ANSWERING = new Set([`${PLUGIN}:issue-fixer`, `${PLUGIN}:code-documenter`]);
 const PLAN_FILE = "/skills/orchestrate/lib/plan.md";
 const PERSIST = "sdlc-agent-result-persist";
+// The `claude plugin list --json` id of the plugin whose `bin/` holds the `github-ref` that
+// PERSIST runs by name.
+const GITHUB_TOOLS = "github-tools@thevoskamps";
 const TICK_MS = 5000;
 const SEPARATOR = " · ";
 const NESTED = " › ";
@@ -105,6 +108,7 @@ type Mods = {
   process: {
     run: (argv: readonly string[]) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
   };
+  env: { get: (name: string) => Promise<string | undefined> };
   command: {
     register: (spec: {
       name: string;
@@ -217,6 +221,12 @@ const reviewerRound = new Map<string, number>();
  * printed none; each read replaces the one before it. Emptied by a run's start.
  */
 const latestProgress = new Map<string, Progress | undefined>();
+/**
+ * The enabled `github-tools` plugin's `bin/`, read from `claude plugin list --json` by the first
+ * progress read of the session and kept, rejected when that read could not find it. The session's
+ * start and end forget it.
+ */
+let githubToolsBin: Promise<string> | undefined;
 /** How many redraws have begun this session, which numbers each in the order it began. */
 let redrawsBegun = 0;
 /** The number `redrawsBegun` gave the latest-begun redraw that drew the line, or 0. */
@@ -237,6 +247,7 @@ const unwritten: { text: string; options?: { to: "transcript" | "debug" } }[] = 
  */
 export function register(on: On): void {
   on("session.start", async ($: Mods, e: unknown, next: Next<unknown>) => {
+    githubToolsBin = undefined;
     await guard($, () => registerCommand($));
     return next(e);
   });
@@ -289,6 +300,7 @@ export function register(on: On): void {
   });
 
   on("session.end", async ($: Mods, e: unknown, next: Next<unknown>) => {
+    githubToolsBin = undefined;
     await guard($, () => endRun($));
     return next(e);
   });
@@ -879,10 +891,24 @@ async function reviewStages(
 
 /**
  * The line `sdlc-agent-result-persist --mode progress` prints for `pr`, or `undefined` when it
- * prints none. Rejects when the command cannot run, exits non-zero, or prints another line.
+ * prints none. The command runs with the enabled `github-tools` plugin's `bin/` ahead of the
+ * session's `PATH`, since it runs `github-ref` by name and a process a hook starts has no plugin
+ * directory on its `PATH`. Rejects when that directory cannot be found, or when the command cannot
+ * run, exits non-zero, or prints another line.
  */
 async function readProgress($: Mods, pr: string): Promise<Progress | undefined> {
-  const argv = [`${$.plugin.root}/bin/${PERSIST}`, "--mode", "progress", "--pr", pr];
+  githubToolsBin ??= findGithubToolsBin($);
+  const bin = await githubToolsBin;
+  const path = (await $.env.get("PATH")) ?? "";
+  const argv = [
+    "/usr/bin/env",
+    `PATH=${bin}${path === "" ? "" : `:${path}`}`,
+    `${$.plugin.root}/bin/${PERSIST}`,
+    "--mode",
+    "progress",
+    "--pr",
+    pr,
+  ];
   const { exitCode, stdout, stderr } = await $.process.run(argv);
   const command = `${PERSIST} --mode progress --pr ${pr}`;
   if (exitCode !== 0) throw new Error(`${command} exited ${exitCode}: ${oneLine(stderr.trim())}`);
@@ -893,6 +919,32 @@ async function readProgress($: Mods, pr: string): Promise<Progress | undefined> 
     throw new Error(`${command} printed \`${oneLine(line)}\`, not a progress line`);
   }
   return { round: Number(round), type, stage, settled, members };
+}
+
+/**
+ * The `bin/` of the enabled `github-tools` install `claude plugin list --json` lists. Rejects when
+ * the list cannot be read or parsed, or names no enabled install of the plugin.
+ */
+async function findGithubToolsBin($: Mods): Promise<string> {
+  const command = "claude plugin list --json";
+  const { exitCode, stdout, stderr } = await $.process.run(["claude", "plugin", "list", "--json"]);
+  if (exitCode !== 0) throw new Error(`${command} exited ${exitCode}: ${oneLine(stderr.trim())}`);
+  let listed: unknown;
+  try {
+    listed = JSON.parse(stdout);
+  } catch (err) {
+    throw new Error(`${command} printed no JSON: ${errorText(err)}`);
+  }
+  const install = Array.isArray(listed)
+    ? listed.find(
+        (entry) =>
+          entry?.id === GITHUB_TOOLS &&
+          entry?.enabled === true &&
+          typeof entry?.installPath === "string",
+      )
+    : undefined;
+  if (install === undefined) throw new Error(`${command} lists no enabled ${GITHUB_TOOLS}`);
+  return `${install.installPath}/bin`;
 }
 
 /**

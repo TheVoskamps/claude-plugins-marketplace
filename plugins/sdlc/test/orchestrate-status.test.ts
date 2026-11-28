@@ -8,6 +8,18 @@ const ROOT = "/plugins/sdlc/0.91.0";
 /** The progress read's executable, under whichever directory the plugin root is in a test. */
 const PERSIST = "/bin/sdlc-agent-result-persist";
 const TAB = "\t";
+const GITHUB_TOOLS_ROOT = "/plugins/github-tools/0.1.0";
+
+/** A `claude plugin list --json` run listing `entries`. */
+function pluginList(...entries: object[]) {
+  return { exitCode: 0, stdout: JSON.stringify(entries), stderr: "" };
+}
+
+/** The plugin list every test reads unless it sets its own: github-tools enabled. */
+const PLUGINS = pluginList(
+  { id: "github-tools@thevoskamps", enabled: false, installPath: "/plugins/github-tools/0.0.1" },
+  { id: "github-tools@thevoskamps", enabled: true, installPath: GITHUB_TOOLS_ROOT },
+);
 
 type Agent = { id: string; status: string; type: string; parentId?: string };
 
@@ -16,8 +28,12 @@ type Host = {
   /** The text of every `$.ui.status` call, `undefined` for a clear. */
   lines: (string | undefined)[];
   logs: string[];
-  /** The `argv` of every `$.process.run` call. */
+  /** The `argv` of every `$.process.run` call but those of `claude plugin list`. */
   runs: string[][];
+  /** How many times `$.process.run` ran `claude plugin list --json`. */
+  pluginLists: number;
+  /** What `$.process.run` resolves to for `claude plugin list --json`. */
+  plugins: { exitCode: number; stdout: string; stderr: string };
   registered: object[];
   /** What `$.agent.list()` resolves to. */
   agents: Agent[];
@@ -34,20 +50,23 @@ type Host = {
 
 /**
  * Stubs everything the module reaches: each spawn is answered with the agent id `a<n>`, counting
- * from 1, and every event's own result is a value a test can tell came from its stub.
+ * from 1, and every event's own result is a value a test can tell came from its stub. `env` is
+ * the session's environment.
  */
-function host(on): Host {
+function host(on, env: Record<string, string> = {}): Host {
   const state: Host = {
     lines: [],
     logs: [],
     runs: [],
+    pluginLists: 0,
+    plugins: PLUGINS,
     registered: [],
     agents: [],
     progress: { exitCode: 0, stdout: "", stderr: "" },
     clock: mock.clock(on),
   };
   let spawned = 0;
-  mock.env(on, {});
+  mock.env(on, env);
   on("ui.status", ($, e) => {
     if (state.refuseStatus !== undefined) return { deny: state.refuseStatus };
     state.lines.push(e.text);
@@ -61,6 +80,10 @@ function host(on): Host {
     state.refuseList !== undefined ? { deny: state.refuseList } : { value: state.agents },
   );
   on("process.run", ($, e) => {
+    if (e.argv.join(" ") === "claude plugin list --json") {
+      state.pluginLists++;
+      return { value: state.plugins };
+    }
     state.runs.push(e.argv);
     return state.refuseRun !== undefined ? { deny: state.refuseRun } : { value: state.progress };
   });
@@ -163,7 +186,7 @@ test("a run in the code loop with a reviewer in disprove names the PR, round, st
   expect(shown(state)).toBe(
     "PR #812 · code loop r2 · theorem-based-pr-reviewer › disprove 15/31 theorems",
   );
-  const [command, ...args] = state.runs.at(-1) ?? [];
+  const [, , command, ...args] = state.runs.at(-1) ?? [];
   expect(command.endsWith(PERSIST)).toBe(true);
   expect(args).toEqual(["--mode", "progress", "--pr", PR]);
 });
@@ -293,7 +316,7 @@ test("before a fresh code loop's first reviewer, a pre-review agent shows r1", a
   state.agents = [running("a2", "sdlc:style-checker")];
   await spawn($, "sdlc:style-checker", `Check ${PR} --mode code-and-instruction-markdown`);
   expect(shown(state)).toBe("PR #812 · code loop r1 · style-checker");
-  const [command, ...args] = state.runs.at(-1) ?? [];
+  const [, , command, ...args] = state.runs.at(-1) ?? [];
   expect(command.endsWith(PERSIST)).toBe(true);
   expect(args).toEqual(["--mode", "progress", "--pr", PR]);
 });
@@ -399,7 +422,7 @@ for (const [stage, settled, members] of [
     expect(shown(state)).toBe(
       `PR #812 (#745 #746) · code loop r2 · theorem-based-pr-reviewer › ${stage} ${settled}/${members} theorems`,
     );
-    expect(state.runs.at(-1)?.slice(1)).toEqual(["--mode", "progress", "--pr", PR]);
+    expect(state.runs.at(-1)?.slice(3)).toEqual(["--mode", "progress", "--pr", PR]);
     state.agents = [running("c1", child, "a1")];
     await turnEnd($, "c1");
     expect(shown(state)).toBe(
@@ -851,6 +874,48 @@ test("a failed progress read is logged once per run", async ($, on) => {
   expect(logged[0]).toContain("exited 2");
 });
 
+// --- github-tools on the progress read's PATH ---------------------------------------------------
+
+test("the progress read runs with the enabled github-tools bin/ ahead of PATH, listed once per session", async ($, on) => {
+  const state = host(on, { PATH: "/usr/bin:/bin" });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await orchestrate($);
+  state.progress = progressLine(1, "code-and-instruction-markdown", "assess", 0, 1);
+  state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+  await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+  await turnEnd($, "a1");
+  expect(shown(state)).toBe("PR #812 · code loop r1 · theorem-based-pr-reviewer › assess");
+  const [env, path, command] = state.runs.at(-1) ?? [];
+  expect([env, path]).toEqual(["/usr/bin/env", `PATH=${GITHUB_TOOLS_ROOT}/bin:/usr/bin:/bin`]);
+  expect(command.endsWith(PERSIST)).toBe(true);
+  expect(state.runs.length).toBeGreaterThan(1);
+  expect(state.pluginLists).toBe(1);
+});
+
+for (const [label, plugins] of [
+  ["not installed", pluginList({ id: "other@thevoskamps", enabled: true, installPath: "/x" })],
+  [
+    "installed and not enabled",
+    pluginList({ id: "github-tools@thevoskamps", enabled: false, installPath: GITHUB_TOOLS_ROOT }),
+  ],
+  ["a plugin list that fails", { exitCode: 1, stdout: "", stderr: "boom" }],
+  ["a plugin list that is no JSON", { exitCode: 0, stdout: "nope", stderr: "" }],
+] as const) {
+  test(`github-tools ${label}: the progress read fails, is logged, and runs nothing`, async ($, on) => {
+    const state = host(on);
+    await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+    state.plugins = plugins;
+    await orchestrate($);
+    state.progress = progressLine(1, "code-and-instruction-markdown", "assess", 0, 1);
+    state.agents = [running("a1", "sdlc:theorem-based-pr-reviewer")];
+    await spawn($, "sdlc:theorem-based-pr-reviewer", `Review ${PR}`);
+    await turnEnd($, "a1");
+    expect(shown(state)).toBe("PR #812 · code loop · theorem-based-pr-reviewer");
+    expect(state.runs).toEqual([]);
+    expect(state.logs.filter((line) => line.includes("claude plugin list --json"))).toHaveLength(1);
+  });
+}
+
 // --- the error paths, through a hand-built `$` ---------------------------------------------------
 //
 // The engine drops a `$.ui.log` it cannot deliver rather than throwing, and refuses a value it
@@ -909,7 +974,11 @@ function direct(): Direct {
   const $ = {
     plugin: { root: ROOT },
     agent: { list: () => state.list() },
-    process: { run: () => state.run() },
+    process: {
+      run: async (argv: readonly string[]) =>
+        argv.join(" ") === "claude plugin list --json" ? PLUGINS : state.run(),
+    },
+    env: { get: async () => undefined },
     command: { register: () => state.register() },
     clock: {
       every: (ms: number, fn: () => void) => {

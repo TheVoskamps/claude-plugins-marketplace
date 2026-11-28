@@ -19,6 +19,8 @@ set -uo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$TEST_DIR/../bin"
+# github-ref, which the github-tools plugin puts on PATH beside this one.
+GITHUB_TOOLS_BIN="$(cd "$TEST_DIR/../../github-tools/bin" && pwd)"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/issues-bin-test.XXXXXX")"
 FAILURES=0
 CASES=0
@@ -241,6 +243,9 @@ new_case() {
   CASE_DIR="$SANDBOX/case-$CASES"
   mkdir -p "$CASE_DIR/repo"
   git -C "$CASE_DIR/repo" init -q
+  # The fake answers `gh repo view` with its current repository whatever URL
+  # it is given; github-ref only needs an origin to hand it.
+  git -C "$CASE_DIR/repo" remote add origin https://github.com/acme/widgets
   if [ "$1" != none ]; then
     mkdir -p "$CASE_DIR/repo/.issues"
     printf '%s\n' "$1" >"$CASE_DIR/repo/.issues/repo-config.md"
@@ -261,7 +266,7 @@ run_in() {
   local dir=$1 verb=$2
   shift 2
   OUT=$(cd "$dir" &&
-    PATH="$SANDBOX/bin:$PATH" FAKE_GH_STATE="$CASE_DIR/state.json" FAKE_GH_LOG="$CASE_DIR/gh.log" \
+    PATH="$SANDBOX/bin:$GITHUB_TOOLS_BIN:$PATH" FAKE_GH_STATE="$CASE_DIR/state.json" FAKE_GH_LOG="$CASE_DIR/gh.log" \
       FAKE_SLEEP_LOG="$CASE_DIR/sleep.log" XDG_CONFIG_HOME="$CASE_DIR/xdg" GIT_CEILING_DIRECTORIES="$SANDBOX" \
       /bin/bash "$BIN/$verb" "$@" 2>&1)
   RC=$?
@@ -889,7 +894,7 @@ for call in "issue-list --project 1 --status Done" "issue-list --project x --sta
   "issue-list --project https://github.com/acme/widgets --status Done" \
   "issue-list --project https://github.com/orgs/acme/projects/1/views/2 --status Done" \
   "issue-list --view https://github.com/orgs/acme/projects/1 --status Done" \
-  "issue-list acme_x --project 1 --status Done" "issue-list --project --status Done"; do
+  "issue-list acme_x_y --project 1 --status Done" "issue-list --project --status Done"; do
   run $call
   expect "$call: a usage error" 2 "usage: issue-list"
 done
@@ -1898,6 +1903,17 @@ done
 run issue-create --title "Child" --body-file new.md --parent 1
 expect "issue-create --parent: a well-formed reference still meets the failing gh repo view" 1 \
   "could not resolve the current GitHub repository"
+
+# A checkout whose gh default repository is not origin's: a verb given no
+# repository acts on origin's, so gh repo view is handed origin's URL.
+new_case "$CONFIG_MAIN"
+set_state '.defaultRepo = "octo/lib"'
+run issue-view 2
+expect "gh default repository not origin's: issue-view N reads origin's repository" 0 \
+  "https://github.com/acme/widgets/issues/2"
+check "$(jq -c 'select(.[0] == "repo")' "$CASE_DIR/gh.log")" \
+  '["repo","view","https://github.com/acme/widgets","--json","url","--jq",".url"]' \
+  "gh default repository not origin's: gh repo view is given origin's URL"
 
 # An issue already closed: left alone when the reason and target match,
 # reopened and closed again when either differs; the comment is posted in both.

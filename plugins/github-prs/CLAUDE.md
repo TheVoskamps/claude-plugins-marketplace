@@ -12,9 +12,9 @@
   not land.
 - A body reaches `gh` by file path or on stdin, never as a command-line
   argument.
-- The PR-reference parser `gp_parse_pr` has a twin in the `issues`
-  plugin carrying the same repository grammar; a change to that grammar
-  edits both.
+- No file in this plugin holds a reference grammar or a check on a host,
+  owner or repository name; a reference is parsed by running
+  `github-ref`.
 - Every verb is GitHub-only; no other source-control backend is added.
 - `pr-create` reads its two repo-config keys, `default-pr-target-branch`
   and `issue-link-prefix`, by an inline parse of those lines.
