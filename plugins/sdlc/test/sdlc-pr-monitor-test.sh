@@ -492,7 +492,7 @@ serve view "$SANDBOX/MERGED"
 OUT=$(PATH="$SANDBOX/rm-fails:$SANDBOX/bin:$PATH" "$MONITOR" "$PR" 60 3 45 2 2>"$SANDBOX/err")
 RC=$?
 check "$RC.$(cat "$SANDBOX/err")" "0." "exit trap: a failed temporary-file removal keeps exit 0 and prints nothing"
-check "$(ls "$TMPDIR" | grep -c '^sdlc-pr-monitor\.')" 1 "exit trap: the file left behind is in the sandbox"
+check "$(find "$TMPDIR" -mindepth 1 -maxdepth 1 -name 'sdlc-pr-monitor.*' | grep -c .)" 1 "exit trap: the file left behind is in the sandbox"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then
