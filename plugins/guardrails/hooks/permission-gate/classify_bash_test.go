@@ -130,6 +130,22 @@ func TestGhAuthSwitchDenied(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh auth switch && gh pr list", false), BucketDeny, "gh auth switch in compound")
 }
 
+// gh auth login naming a host asks in every spelling of the host flag, the
+// `=`-joined one included; a login naming no host is the negative control.
+func TestGhAuthLoginHostnameAsks(t *testing.T) {
+	for _, cmd := range []string{
+		"gh auth login --hostname example.com",
+		"gh auth login -h example.com",
+		"gh auth login --hostname=example.com",
+		"gh auth login --web --hostname=example.com",
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, cmd)
+	}
+	if d := classifyCmd(t, "gh auth login --web", false); d.Bucket == BucketAsk {
+		t.Errorf("gh auth login with no host flag must not ask; got %q (%s)", d.Bucket, d.Reason)
+	}
+}
+
 // A subagent git reset --hard is denied, and the deny carries the
 // detached-checkout remediation in its Reason.
 func TestGitResetHard(t *testing.T) {

@@ -8,17 +8,15 @@ import (
 )
 
 // Home usability is decided by ONE predicate at ONE chokepoint (home.go).
-// These tests are the table the issue asks for: every home shape the gate can
-// be handed — unset, empty, relative, absolute — crossed with every shape that
-// reads a home, asserting that the unusable rows all deny at the chokepoint
-// and the absolute rows are untouched.
+// These tests cross every home shape the gate can be handed — unset, empty,
+// relative, absolute — with every shape that reads a home, asserting that the
+// unusable rows all deny at the chokepoint and the absolute rows are untouched.
 //
 // The unusable rows can only be measured here. A replay against the committed
 // binary cannot build them: a `HOME=<dir>` prefix is refused by the harness's
 // worktree-isolation guard, so a synthetic event measures whatever the driving
-// machine's own home is (docs/guardrails-verification-playbook.md → "A
-// `$HOME`-rooted rule is settled by `go test`, not by a replay"). t.Setenv over
-// a t.TempDir builds the fixture the replay cannot.
+// machine's own home is. t.Setenv over a t.TempDir builds the fixture the
+// replay cannot.
 
 // homeShape is one setting of the process home directory.
 type homeShape struct {

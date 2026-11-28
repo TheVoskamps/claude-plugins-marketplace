@@ -745,9 +745,10 @@ func TestOperatorCarveOutDotDotEscape(t *testing.T) {
 	wantBucket(t, d, BucketDeny, "read of a sibling repo (negative control)")
 }
 
-// A call mixing a listed target with an ordinary in-repo one falls back to the
-// ordinary defer rather than letting the carve-out's ALLOW ride along with a
-// path the gate has not blessed on its own terms.
+// On the file tools, a call mixing a listed target with an ordinary in-repo
+// one defers, as the in-repo target alone does, rather than letting the
+// carve-out's ALLOW ride along with a path the gate has not blessed on its own
+// terms. The Bash tracks grade the same mix by their own terminals.
 func TestOperatorCarveOutDoesNotRideAlong(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -939,8 +940,7 @@ func TestLoadOperatorConfigFrom(t *testing.T) {
 
 	// `~someone/config` is a username reference this gate does not resolve, so
 	// it is still relative when the absolute test runs and the root drops on
-	// exactly the same terms as `.config` above. Only `~` and `~/` expand, and
-	// the README says so where it says a default spelling may start with `~`.
+	// exactly the same terms as `.config` above. Only `~` and `~/` expand.
 	if err := os.WriteFile(path, []byte(
 		"schema-version: 2\nconfig-home-default: ~someone/config\nstate-home-default: ~/.local/state\n"+
 			"config-home:\n  write:\n    - cc-tools/**\nstate-home:\n  write:\n    - sdlc/**\n"),

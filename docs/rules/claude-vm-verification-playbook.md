@@ -553,7 +553,7 @@ is unreadable from a worktree-isolated agent unless this machine's
 operator listed `claude-vm/**` under `state-home` in the permission
 gate's operator carve-out (see
 [`docs/rules/config-file-conventions.md`](config-file-conventions.md) →
-"The permission gate's carve-out follows these same roots"); the gate
+"The permission gate decides what a tool call reaches"); the gate
 ships no default entries, so assume it is unreadable until a read
 says otherwise. Fetch one into repo scratch through the product's own
 verified path instead, setting `CLAUDE_VM_CACHE_DIR` under

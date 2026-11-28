@@ -435,6 +435,24 @@ func TestAwsConfigureGetSecretAsk(t *testing.T) {
 	}
 }
 
+// `aws configure export-credentials` prints the resolved credentials, so it
+// asks through the same credential-read arm as a secret-bearing
+// `aws configure get`, whatever its format or profile.
+func TestAwsConfigureExportCredentialsAsk(t *testing.T) {
+	for _, cmd := range []string{
+		"aws configure export-credentials",
+		"aws configure export-credentials --format env",
+		"aws configure export-credentials --profile prod",
+		"aws --profile prod configure export-credentials --format process",
+	} {
+		d := classifyCmd(t, cmd, false)
+		wantBucket(t, d, BucketAsk, "aws configure export-credentials: "+cmd)
+		if d.Operation != "aws credential-read" {
+			t.Errorf("%s: want the aws credential-read arm, got operation %q", cmd, d.Operation)
+		}
+	}
+}
+
 // An unrecognized leading global flag of UNKNOWN arity must fail closed: if a
 // flag the gate doesn't know (`--totally-unknown-flag x`) is value-taking but
 // not consumed, its value becomes a stray positional and shifts svc/op by one,

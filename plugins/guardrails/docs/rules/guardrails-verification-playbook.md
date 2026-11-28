@@ -23,20 +23,11 @@ JSON `permissionDecision` (`deny` / `ask` / `allow`):
 printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"<repo>","tool_input":{"command":"cat \\"$HOME/.ssh/id_rsa\\""}}' | <bin>
 ```
 
-**A defer has no `permissionDecision` at all.** The gate spells its
-abstention as the envelope with the field omitted —
-
-```json
-{"hookSpecificOutput":{"hookEventName":"PreToolUse"}}
-```
-
-— because the literal `"defer"` makes Claude Code pause the tool call
-for later resumption, which never resolves inside a subagent. So a
-probe reads a defer as *the field's absence*, and any jq expression
-that pulls `.hookSpecificOutput.permissionDecision` yields `null` for
-a deferred row rather than the string `defer`. A probe table that
-buckets rows by that string therefore shows `null`, not a failure;
-what WOULD be a failure is a row emitting the literal.
+**A defer is not a `permissionDecision` value**; its spelling is
+`docs/rules/hook-event-notes.md`'s. A jq expression that pulls
+`.hookSpecificOutput.permissionDecision` yields `null` for a deferred
+row rather than the string `defer`, so a probe table that buckets rows
+by that string shows `null`, not a failure.
 
 Pick commands that map to the PR's acceptance criteria and confirm the
 committed binary returns the new verdicts. Only the host-arch binary is
@@ -162,8 +153,8 @@ either: the gate reads either variable only when the driving machine's
 own `~/.config/guardrails/config.yml` says
 `resolve-xdg-environment-variables: yes` — a file outside the repo,
 which the gate denies every **file-tool** write to. A Bash redirect at
-it is not the gate's to refuse and **defers** — measured, a
-`printf x > <that literal path>` event abstains — so what stops that
+it is not the gate's to refuse and **defers** — measured on a
+`printf x > <that literal path>` event — so what stops that
 route is the outside-the-repo approval policy rather than a gate
 verdict. Either way the relocated root a replay could point at still
 carries whatever globs that machine's operator wrote, and a machine
@@ -190,21 +181,46 @@ verdict is real evidence.
 
 ## Prove which source a committed binary came from
 
-### The cheap first move: rebuild and `cmp`
+`rebuild-binaries.sh` builds with `-trimpath -buildvcs=false`, so a
+binary it built embeds no `vcs.revision`, `vcs.time` or `vcs.modified`
+stamp, and nothing in it depends on the commit, the checkout path or
+the time it was built at. A rebuild of the same source with the same Go
+release is byte-identical to the committed binary, at head and at every
+later commit — the amend that adds the binaries included.
 
-Rebuild and compare bytes:
+### The cheap first move: rebuild and compare
 
-```bash
-GOOS=<goos> GOARCH=<goarch> CGO_ENABLED=0 \
-  go -C plugins/guardrails/hooks/permission-gate build -trimpath -o <out> .
-cmp <out> plugins/guardrails/hooks/bin/<goos>-<goarch>/permission-gate
-```
+On a clean tree, run
+`plugins/guardrails/hooks/permission-gate/rebuild-binaries.sh`, then
+`git status --short plugins/guardrails/hooks/bin/`. A binary with no
+entry is byte-identical to the committed one, which is conclusive and
+settles staleness in one command.
 
-Byte-identical is conclusive and settles staleness in one command.
-**Differing proves nothing** — vcs stamps and build IDs move — so fall
-back to the protocol below.
+A modified entry is a mismatch unless one of two things explains it,
+and `go version -m` on both binaries tells which:
 
-### The decisive protocol when `cmp` differs
+- the Go release differs from the one the committed binary names, and
+  then the rebuild measured your toolchain — install the release the
+  committed binary names and rebuild;
+- the committed binary lists `vcs.` lines, because it was built with
+  VCS stamping, and then the protocol below settles it.
+
+Take the committed binary for every comparison from the immutable git
+object, `git show HEAD:<bin-path> > <tmp>`, never from a working-tree
+copy a concurrent session can rewrite mid-check.
+
+### The decisive protocol for a binary carrying vcs stamps
+
+Compare it against a rebuild that carries stamps too: on a clean
+checkout of the source, run the script's `go build` line without
+`-buildvcs=false`, into a scratch directory. A stamp-free rebuild is no
+comparison for it — dropping the stamp shortens the buildinfo string,
+which moves data and bss symbols on all three arches, so the `nm` and
+`cmp -l` checks below fail on a correct binary.
+
+Two stamped builds of the same source differ in the buildinfo and
+build-ID regions, typically a few hundred bytes, and never in code, so
+their raw `cmp` or `shasum` difference is no mismatch signal on its own.
 
 Require all of:
 
@@ -222,7 +238,20 @@ Require all of:
 
 `go version -m <binary>` prints go version, module, deps, `-trimpath`
 and `CGO_ENABLED` for a foreign-arch binary, so use it to confirm every
-committed arch was rebuilt consistently when only one can execute.
+committed arch was rebuilt consistently when only one can execute. The
+Go version, the module path, each dependency's version and `h1:` hash,
+`-trimpath=true` and `CGO_ENABLED=0` must all match; only
+`vcs.revision`, `vcs.time` and `vcs.modified` may differ.
+
+The `nm` comparison of item 1, spelled out:
+
+```sh
+diff <(go tool nm <committed> | grep -v ' runtime\.modinfo\.str$') \
+     <(go tool nm <rebuilt>   | grep -v ' runtime\.modinfo\.str$')
+```
+
+Empty output is the pass; a line naming any other symbol is a real
+mismatch.
 
 ### A claim about the build tool holds only on the arches you ran it on
 
@@ -237,13 +266,13 @@ runs showed and keep the recipe.
 
 ### Never read provenance off the embedded vcs stamp
 
-A build stamps `vcs.revision` with the HEAD of the checkout it runs
-in — inside a `.claude/worktrees/` linked worktree, that worktree's own
-HEAD, never the primary clone's — and the commit that lands the rebuilt
-binaries is by construction later than the one they stamp. A revision
-stamp that names neither the tip nor the commit you expected is
-expected, not evidence of staleness; staleness falls to the `nm`
-compare and the behavior probes.
+A binary that carries a stamp stamps `vcs.revision` with the HEAD of
+the checkout it was built in — inside a `.claude/worktrees/` linked
+worktree, that worktree's own HEAD, never the primary clone's — and the
+commit that lands the rebuilt binaries is by construction later than
+the one they stamp. A revision stamp that names neither the tip nor the
+commit you expected is expected, not evidence of staleness; staleness
+falls to the rebuild comparison and the behavior probes.
 
 ### Naming the exact source commit
 
@@ -278,11 +307,14 @@ These commands are decisive rather than suggestive:
 2. `go tool nm` of the **pre-round** committed binary
    (`git show <parent-commit>:<bin-path> > <tmp>`) versus the tip one
    must be identical under the same `runtime.modinfo.str` filter, on
-   every committed arch.
+   every committed arch. When one of the two lists `vcs.` lines and the
+   other does not, `nm` differs on a correct pair; compare the stamped
+   one against a stamped rebuild of the tip's source instead, by the
+   stamp protocol above.
 
 Together those separate "the source is comments" from "the shipped
-bytes carry the same policy". The tip-rebuild `cmp` answers the
-different question of staleness, so run it too.
+bytes carry the same policy". Rebuilding and comparing, as above,
+answers the different question of staleness, so do that too.
 
 When `nm` differs on exactly one arch, the claim is still decidable.
 Diff the two `nm` dumps and require all of: only change hunks, no
@@ -485,26 +517,19 @@ carries an `agentAssignment` arm (`targetRepositoryId`, `baseRef`,
 coding agent at an arbitrary repository — a surface the gate cannot
 distinguish from a title edit, since it never inspects arguments, so no
 argument inspection would make the verb allowable and it is refused
-whichever arm the document sets, aliased or not. That refusal is a
-`deny` rather than an `ask`, on the second half of the same grading: the
-introspection settles whether a verb can ever be ALLOWED, and a separate
-question — is there a TOTAL set of allowed spellings covering every
-legitimate use? — settles whether refusing it is a teaching deny or a
-dead end. For `updateIssue` there is one
-(`updateIssueFieldValue`/`setIssueFieldValue`/`deleteIssueFieldValue`,
-`updateIssueIssueType`, `closeIssue`/`reopenIssue`, `gh issue edit`), so
-it denies; a verb with no such enumeration defers instead. Grade
-**every** arm the input declares, and follow a composite arm into its
-own input type.
+whichever arm the document sets, aliased or not. The introspection
+settles only whether a verb can ever be ALLOWED. The allowed spellings
+`updateIssue`'s refusal names in its place are
+`updateIssueFieldValue`/`setIssueFieldValue`/`deleteIssueFieldValue`,
+`updateIssueIssueType`, `closeIssue`/`reopenIssue` and
+`gh issue edit`. Grade **every** arm the input declares, and follow a
+composite arm into its own input type.
 
-The teaching question is asked of the DOCUMENT, not only of the verb,
-and a probe that sends the verb alone cannot see the difference. A
-document bundling a redirectable verb with one the gate can only
-refuse defers, because the deny would teach about one field and leave
-the other with nowhere to go. So a redirect-deny probe needs both
-controls: the verb alone (and bundled with allow-listed companions)
-must deny, and the verb bundled with an unredirectable mutation —
-`mutation { updateIssue(…) deleteIssue(…) }` — must defer. Run the
+A probe that sends the verb alone cannot see how the gate grades the
+document around it, so a redirect-deny probe needs both
+controls: the verb alone (and bundled with allow-listed companions),
+and the verb bundled with an unredirectable mutation —
+`mutation { updateIssue(…) deleteIssue(…) }`. Run the
 bundled row in both field orders. The check walks the document's
 fields, so a probe that always puts the redirectable verb first cannot
 tell a whole-document rule from a first-match one.
@@ -680,8 +705,8 @@ the home predicate (`home.go`) and writes nothing at all for a relative
 one, so a probe pointed at `gate.jsonl` measures an empty log rather
 than a silent arm.
 That is how a probe distinguishes *which* arm produced a `defer` — every
-defer is byte-identical on stdout, because `emitDecision` omits both the
-decision and the reason for one. Assert the `operation` label, not just
+defer is byte-identical on stdout, because `emitDecision` drops a
+defer's reason. Assert the `operation` label, not just
 the bucket, whenever more than one arm can produce the verdict under
 test.
 
@@ -936,24 +961,6 @@ A rebucketing round has a second wave: renaming the tests leaves their
 *doc comments* still describing the old verb, so the comment sweep
 needs a pass after the rename, not before it.
 
-## Editing a comment here invalidates the committed binaries
-
-The binaries under `hooks/bin/<goos>-<goarch>/` are build artifacts of
-the sources beside them, and Go embeds file:line, so adding or
-removing even a comment line shifts them. A doc pass that fixes a
-stale Go doc comment — squarely in scope — otherwise leaves the
-shipped binaries built from a source tree that no longer exists, and
-the next reviewer's rebuild-and-compare shows a delta to adjudicate.
-
-So after editing any `.go` file under `hooks/permission-gate/`, run
-`golangci-lint fmt --diff` from the module, rebuild every committed
-arch with the build invocation under "Prove which source a committed
-binary came from", and stage the binaries in the
-same commit. They cross-compile from macOS with no extra setup. Run
-`golangci-lint fmt --diff` even when you touched no Go file: an
-unformatted map alignment left by an earlier round is cheapest to catch
-here.
-
 ## An unrunnable-binary case needs a wrong GOOS, not a wrong GOARCH
 
 Planting a wrong-architecture ELF to test a "present, exec bit set, but
@@ -1063,20 +1070,16 @@ table is meaningless. That happens when the working directory does not
 exist, and when relative levels counted by feel resolve back inside the
 primary clone (a worktree-escape deny, not the cross-repo one).
 
-## A teaching verdict is graded per document, not per element
+## Probe a loop over elements with the uncovered element first
 
-When a tier's membership rule is "this verdict is legitimate only
-because its message tells the caller what to do instead", the rule is a
-property of the whole input. A check that fires on the first matching
-element returns a message enumerating that element's alternatives while
-saying nothing about an uncovered sibling — a dead end, which is what
-the tier forbids.
-
-The tell is a codebase that already spells all-elements-must-pass for
-one set and not the other; mirror it. Probe per shape, not per verb:
-the element alone, with a covered companion, with an uncovered
-companion, and with the uncovered companion **first**, since a
-first-match loop is order-sensitive and a same-order probe hides it.
+A check that walks an input's elements can return on the first match,
+and a probe that sends one element at a time cannot tell that from a
+check over all of them. The tell is a codebase that already spells
+all-elements-must-pass for one set and not the other; mirror it. Probe
+per shape, not per verb: the element alone, with a covered companion,
+with an uncovered companion, and with the uncovered companion
+**first**, since a first-match loop is order-sensitive and a same-order
+probe hides it.
 
 A map whose value is a single string forces the rationale into the
 caller's message, which then gets written for the founding member;
@@ -1145,10 +1148,6 @@ produces holes. And assert the framing in a test that both requires the
 harm words and forbids the blind-spot vocabulary, so a later reword
 cannot quietly reintroduce it.
 
-Ask rather than deny where a human has legitimate reasons to proceed:
-this gate governs interactive human sessions as well as agent ones, and
-one click preserves those where a deny does not.
-
 ## An upstream guard decides which rows can reach yours
 
 When a finding says to narrow a guard, every row written for the new
@@ -1181,10 +1180,12 @@ matches what the committed binary was built with, then rebuild every
 arch from the unmodified tip and compare against the committed
 binaries.
 
-The byte comparison is not the grade. The embedded revision stamp is
-the HEAD of the checkout that built the binaries, and the commit that
-landed them is later than that, so a tip rebuild differs from the
-committed binary inside the build-information region on every arch
-with nothing wrong — do not report that as a provenance failure, and
-never write "a rebuild is byte-identical to the committed binary" into
-a PR body, since it is false for every later reader.
+Against binaries `rebuild-binaries.sh` built, the byte comparison is the
+grade: with the Go release matching, every arch rebuilt from the tip is
+byte-identical to the committed one. Against a committed binary that
+lists `vcs.` lines, it is not — the stamp names the HEAD of the checkout
+that built it, so a tip rebuild differs from it on every arch with
+nothing wrong. Grade that one against a
+stamped rebuild by the stamp protocol under "Prove which source a
+committed binary came from", and do not report the difference as a
+provenance failure.

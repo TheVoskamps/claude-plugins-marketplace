@@ -402,6 +402,14 @@ type simpleCommand struct {
 	// grades their operands, so `cat < ../sibling-repo/.env` earns the same deny
 	// as `cat ../sibling-repo/.env`. A `/dev/null` source is not recorded (it
 	// discloses nothing, and containment would read it as an out-of-repo path).
+	//
+	// The read tracks and the write track grade it, and among the
+	// git/gh/aws/acli classifiers only ghPublishedFileRefs reads it, in place of
+	// a gh file verb's `-` operand, so `gh pr comment 227 -F - < /etc/passwd`
+	// denies as `-F /etc/passwd` does. Every other path through those
+	// classifiers gates on hasRedirectToFile alone, so `git status < /etc/passwd`
+	// allows. That gap is left in place deliberately, since reaching into those
+	// classifiers carries a materially larger blast radius.
 	inputRedirectTargets []string
 	// redirectGlued holds the expanded literals of the words — argv operands
 	// and redirect targets alike — that the line spells with no blank between
@@ -919,8 +927,10 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// residual DEFER and not the grading direction — `cd` is an
 			// unclassified program, so every line of this shape carries a
 			// no-specific-rule defer and none can ride the allow track. The
-			// shipped verdict does not widen whichever way the region moves. See
-			// the README's cd-tracking section.
+			// shipped verdict does not widen whichever way the region moves. Only
+			// the strict direction is replayable — a replay cannot relocate
+			// $HOME — so the `..` counterexample is a testContainmentFrom fact
+			// that only a package test over a fixture home can measure.
 			//
 			// ok is already established by the case guard plus a usable home.
 			// Cleaned, not verbatim, so a $HOME carrying a trailing slash cannot
@@ -963,13 +973,13 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// of that node at once. That matters because a non-anchor `$(…)` leaves its
 	// word INEXACT, and inexactness stops the allow track only where the inexact
 	// word rides a command the walk emits: a `for`/`select` item list, a `case`
-	// subject or pattern, and a `VAR=… cmd` prefix emit no command of their own,
-	// so before this took a node, `for f in $(cat ../sib/.env); do echo x; done`
-	// and `FOO=$(cat ../sib/.env) echo hi` ALLOWed on their remaining parts while
-	// bash ran the substituted command. Hand-listing the positions was tried on
-	// the sibling process-substitution class and did not converge — successive
-	// review rounds each found one more — so the reach is a property of the
-	// traversal instead.
+	// subject or pattern, and a `VAR=… cmd` prefix emit no command of their own.
+	// Grading only the words of emitted commands would let
+	// `for f in $(cat ../sib/.env); do echo x; done` and
+	// `FOO=$(cat ../sib/.env) echo hi` ALLOW on their remaining parts while bash
+	// runs the substituted command, so the reach is a property of the traversal
+	// rather than a list of word positions: every substitution under the node is
+	// found, whatever word position holds it.
 	//
 	// The walk STOPS at any nested *syntax.Stmt: the main walk reaches those on
 	// its own (a `for` body, a `case` arm, a substitution's own statements), and a
@@ -1058,11 +1068,10 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// it with syntax.Walk — so it covers every word position of that node at
 	// once (argv, an assignment RHS and its array elements, a `for`/`select`
 	// item list, a `case` subject word and its patterns, a `[[ … ]]` operand, a
-	// redirect target) instead of a hand-listed few. Enumerating the positions by
-	// hand did not converge: each review round found a position the round
-	// before had missed — first a redirect target, then `for f in <(cmd)`,
-	// `case <(cmd) in` and `x=<(cmd)` — so the reach is now a property of the
-	// traversal rather than of a list someone has to keep complete.
+	// redirect target, an inline environment prefix, a declaration clause's
+	// RHS) instead of a hand-listed few. A hand-kept list of positions misses
+	// the next one, so the reach is a property of the traversal rather than of
+	// a list someone has to keep complete.
 	//
 	// The walk STOPS at any nested *syntax.Stmt: the main walk reaches those on
 	// its own (a `for` body, a `case` arm, a substitution's own statements), and a
@@ -1085,16 +1094,14 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// here, because the parser reports no ProcSubst node for it at all (measured
 	// against mvdan.cc/sh v3.13.1): a parameter expansion's word, in its
 	// unquoted spelling — real bash runs `: ${Q:-<(cmd)}` and does NOT run
-	// `: "${Q:-<(cmd)}"` (re-measured, identically, on bash 3.2.57 and 5.3.15).
+	// `: "${Q:-<(cmd)}"` (measured identically on bash 3.2.57 and 5.3.15).
 	// isResolvableParamExp rejects every non-plain expansion, so the word is
 	// inexact, and inexactness stops the allow track only where the inexact word
 	// rides a command the walk emits — so a NON-emitting position keeps allowing:
-	// `for f in ${Q:-<(cat ../sib/.env)}; do echo x; done` ALLOWs, here and at
-	// the merge base this descent landed on. This is the one measured hole left
-	// in either
-	// substitution class, and it is unclosable without a node to hang the descent
-	// on; the `$(…)` spelling of the same shape (`${Q:-$(cmd)}`) IS reported and
-	// IS graded, by descendCmdSubsts.
+	// `for f in ${Q:-<(cat ../sib/.env)}; do echo x; done` ALLOWs. This is the one
+	// known hole left in either substitution class, and it is unclosable without
+	// a node to hang the descent on; the `$(…)` spelling of the same shape
+	// (`${Q:-$(cmd)}`) IS reported and IS graded, by descendCmdSubsts.
 	//
 	// A here-document body is not a PROCESS-substitution position at all: bash
 	// takes `<(cmd)` there literally and the parser agrees, so walking a whole

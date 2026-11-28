@@ -5,8 +5,7 @@
 // It reads a single PreToolUse event as JSON on stdin and emits a verdict:
 //
 //   - Normal path: a structured decision as JSON on stdout, exit 0
-//     (allow / deny / ask, or a defer spelled as the envelope with no
-//     permissionDecision field). See decision.go and emitDecision.
+//     (allow / deny / ask / defer). See decision.go and emitDecision.
 //   - Fail-closed backstop: any crash / parse error / panic / malformed event
 //     blocks via exit 2 with a teaching message on stderr (stderr is fed back
 //     to the model). See failClosed.
@@ -24,23 +23,21 @@
 // how confident it is:
 //
 //   - DENY with teaching — a known-bad call for which a prescriptive redirect
-//     exists. This tier keeps its value BECAUSE of automode: a defer that
-//     automode denies produces a generic denial, while the gate's deny carries
-//     the redirect prose the model self-corrects on.
+//     exists. The deny's reason carries the redirect prose the model
+//     self-corrects on, which no defer carries: emitDecision drops a defer's
+//     reason.
 //   - ALLOW with positive grounds — proven read-only operations and contained
 //     writes. This is what keeps the hot path off the evaluator entirely.
 //   - Hard ASK — a short, enumerated human-click tier: publish verbs,
 //     history-destroying pushes, credential/secret reads and mints. Policy, not
-//     classification; an LLM must not be able to waive these. (That the ask
-//     survives a downstream allow is design intent, not a measured fact — see
-//     README.md, "The hard-ask tier's precedence is unpinned".)
+//     classification; an LLM must not be able to waive these.
 //
 // Everything else — the whole judgment middle, including every "the gate
 // cannot statically classify this" arm — DEFERS, carrying the gate's analysis
-// into the evolution log for the evaluator's tuning. The old ask-default is
-// gone: a gate ask is a guaranteed hard prompt that BYPASSES the smartest layer
-// in the stack, so spending one on uncertainty bought prompt fatigue rather
-// than safety.
+// into the evolution log for the evaluator's tuning. Uncertainty never asks:
+// an ask spends a human click, and the ask tier is a policy list rather than
+// an uncertainty default, so spending one on uncertainty buys prompt fatigue
+// rather than safety.
 package main
 
 import (
@@ -133,6 +130,12 @@ func classify(ev *Event) Decision {
 
 // isFileTool reports whether the tool reads or mutates files by path and is
 // therefore subject to Engine B containment.
+//
+// Grep and Glob are absent because the hooks.json matcher raises no event for
+// them, so a path either is handed — a `~`-spelled one, a primary-clone one —
+// is graded nowhere. Widening the matcher would make every Grep and Glob in
+// every session pay for a gate subprocess, a change with a blast radius of its
+// own.
 func isFileTool(name string) bool {
 	switch name {
 	case "Read", "Write", "Edit", "MultiEdit", "NotebookEdit":
@@ -142,27 +145,20 @@ func isFileTool(name string) bool {
 	}
 }
 
-// emitDecision writes the verdict on the JSON-stdout / exit-0 channel
-// (Resolved decision 1).
+// emitDecision writes the verdict on the JSON-stdout / exit-0 channel.
 //
-// A defer emits the envelope with NO permissionDecision field, which is the
-// documented per-call abstention: the hook takes no position and the normal
-// permission pipeline resolves the call. It must NOT emit the literal
-// "defer" — Claude Code gave that wire value different semantics (it PAUSES
-// the tool call for later resumption, added for headless-resume workflows).
-// Inside a subagent a paused tool call never resolves, the tool use ends with
-// no result, and the harness tears the agent session down.
+// Every bucket, a defer included, writes non-empty JSON, which the hooks.json
+// wrapper requires: it reads "exit 0 with empty stdout" as an unrunnable gate
+// binary and fails closed. That discriminator is sound only because every
+// bucket goes through here, which writes JSON before os.Exit(0), and every
+// other exit goes through failClosed: so "a defer means no opinion, so write
+// no bytes" is precisely the refactor it exists to catch.
+// decision_stdout_test.go pins what each bucket writes.
 //
-// The empty envelope is still non-empty JSON, which the hooks.json wrapper
-// requires: it reads "exit 0 with empty stdout" as an unrunnable gate binary
-// and fails closed, so the no-output spelling of abstention is
-// unavailable to this gate. decision_stdout_test.go pins both halves.
-//
-// A defer's reason is DROPPED here — with the decision field gone there is no
-// field to carry it, and there never was one to fill. deferJudgment sites
-// carry the gate's analysis for the evolution log, but a deferred call must
-// reach the downstream evaluator exactly as a bare defer does: the gate did not
-// decide, so it puts no words in the judge's mouth, and every defer emits the
+// A defer's reason is DROPPED here. deferJudgment sites carry the gate's
+// analysis for the evolution log, but a deferred call must reach the
+// downstream evaluator exactly as a bare defer does: the gate did not decide,
+// so it puts no words in the judge's mouth, and every defer emits the
 // identical payload whatever its analysis says.
 func emitDecision(d Decision) {
 	hookOut := map[string]any{

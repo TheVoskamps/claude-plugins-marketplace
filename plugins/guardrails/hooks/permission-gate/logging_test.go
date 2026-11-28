@@ -217,9 +217,8 @@ func TestDeferAnalysisStaysOutOfTheStdoutVerdict(t *testing.T) {
 	if b := stdoutBucket(t, out); b != BucketDefer {
 		t.Fatalf("this event must defer for the test to mean anything; got %q", b)
 	}
-	// A defer abstains by omitting permissionDecision, and the
-	// reason key goes with it — there is no field left to leak the analysis on,
-	// which is a stronger form of the same guarantee than the empty string was.
+	// A defer's stdout carries no reason key, so there is no field to leak the
+	// analysis on.
 	if raw, ok := got.HookSpecificOutput["permissionDecisionReason"]; ok {
 		t.Errorf("a defer must emit NO reason key on stdout; got %s", raw)
 	}

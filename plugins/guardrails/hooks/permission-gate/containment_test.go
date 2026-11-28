@@ -495,9 +495,7 @@ func fileToolBucket(t *testing.T, tool, repoRoot, target string) Decision {
 // Session row (ALLOW): a file-tool or bash read/write whose canonical target
 // lands in a session-shaped harness scratchpad directory —
 // <system-tmp>/claude-<uid>/<project-slug>/<uuid>/{scratchpad,tasks}/… — is
-// allowed OUTRIGHT, not deferred. A defer would leave the feature dead until
-// every /tmp entry is removed from settings.json, since a hook allow outranks
-// that list and a defer does not.
+// allowed OUTRIGHT, not deferred: the region meets BucketAllow's bar.
 //
 // Both /tmp and /private/tmp spellings are exercised: on macOS /tmp is a
 // symlink, so the canonical root is the /private/tmp form while the literal
@@ -995,9 +993,8 @@ func compoundSpellings(inner, redirect string) map[string]string {
 //	{ echo x; } > <out-of-repo>           ALLOW  (bare `echo` — a WRITE bypass)
 //
 // The write row is the serious one: with the redirect dropped the line reduces to
-// a pure-output, non-path-bearing command that is allow-eligible on its own, and
-// an allow outranks settings.json — so the gate positively blessed an arbitrary
-// out-of-repo write it never saw.
+// a pure-output, non-path-bearing command that is allow-eligible on its own, so
+// the gate positively blessed an arbitrary out-of-repo write it never saw.
 //
 // The equivalence assertions are the load-bearing ones: each compound spelling is
 // compared against the bare command carrying the same redirect, never against a
@@ -1715,8 +1712,7 @@ func TestHarnessSessionShape(t *testing.T) {
 // a Linux CI box), so it costs nothing where there is no ground truth to check.
 //
 // A failure here means the harness's real layout has drifted away from a shape
-// the gate blesses — which silently downgrades those paths from ALLOW to DEFER,
-// i.e. reintroduces the original symptom wherever settings.json still denies /tmp.
+// the gate blesses — which silently downgrades those paths from ALLOW to DEFER.
 func TestHarnessShapesMatchLiveLayout(t *testing.T) {
 	st := resolveHarnessScratchRoot()
 	if st.root == "" || st.defect != "" {
@@ -1779,8 +1775,7 @@ func TestHarnessShapesMatchLiveLayout(t *testing.T) {
 				rem := e.Name() + "/" + s.Name() + "/" + leaf
 				if !harnessSessionShape.MatchString(rem) {
 					t.Errorf("the LIVE session directory %q does not match the shipped session shape "+
-						"%q — writes to it degrade from ALLOW to DEFER, which is this issue's original "+
-						"symptom wherever settings.json still denies /tmp",
+						"%q — writes to it degrade from ALLOW to DEFER",
 						rem, harnessSessionShape.String())
 				}
 				checkedSessions++
@@ -1866,8 +1861,8 @@ func TestHarnessBundledSkillsShape(t *testing.T) {
 }
 
 // Bundled-skills rows: the tree is READ/WRITE-GRADED.
-// A read matching the shape is ALLOWed outright (the model legitimately reads
-// bundled skills, and a DEFER would still lose to a /tmp deny in settings.json);
+// A read matching the shape is ALLOWed outright (reading a bundled skill is
+// what the tree is for, which meets BucketAllow's bar for a read);
 // a WRITE matching it DEFERS — the content is harness-installed, so the gate has
 // no positive grounds to bless a rewrite, but neither is it an escape to deny.
 //
@@ -2381,14 +2376,12 @@ func failingHomeDir() (string, error) {
 }
 
 // TestCanonicalizeFromResolverNoHomeUnresolvedTilde pins canonicalizeFrom
-// Resolver's no-home branch directly: a round-3 PR review found that the
-// previous fix (TestCanonicalizeFromExpandsTilde /
-// TestContainmentTildeEscapeDenied above) only covered the home-resolvable
-// path — both of those tests t.Skip when there is no home, so the no-home
-// branch shipped completely unpinned, and it fell through to the ordinary
-// relative-join and resolved as `<base>/~/.ssh/id_rsa`, an in-repo-looking
-// path (fail-OPEN), despite a code comment and the README both claiming it
-// matched applyCd's fail-closed ("invalidate rather than guess") posture.
+// Resolver's no-home branch directly. TestCanonicalizeFromExpandsTilde and
+// TestContainmentTildeEscapeDenied above cover only the home-resolvable path —
+// both t.Skip when there is no home — and a no-home branch that fell through to
+// the ordinary relative-join would resolve `~/.ssh/id_rsa` as
+// `<base>/~/.ssh/id_rsa`, an in-repo-looking path (fail-OPEN), where it must
+// match applyCd's fail-closed ("invalidate rather than guess") posture.
 //
 // This test injects a homeDir resolver that always fails, so it runs
 // deterministically in every environment (real $HOME set or not) — it does
@@ -2421,16 +2414,15 @@ func TestCanonicalizeFromResolverNoHomeUnresolvedTilde(t *testing.T) {
 	}
 }
 
-// TestContainmentNoHomeTildeFailsClosed pins the fix one layer up, through
-// testContainmentFrom, using t.Setenv("HOME", "") to deterministically force
-// os.UserHomeDir to fail on Unix (UserHomeDir reads $HOME directly) rather
-// than relying on — or skipping under — whatever the ambient test
-// environment's real home-directory resolvability happens to be. This is
-// the exact "HOME unset" scenario from that round-3 PR review (cron
-// jobs, minimal containers, stripped environments): a leading-tilde operand
-// must earn a non-contained (escapeRepo) verdict, never `contained`, so
-// every caller (classifyFileTool, containPathOperands, containWriteOperands)
-// denies rather than allows.
+// TestContainmentNoHomeTildeFailsClosed pins the same branch one layer up,
+// through testContainmentFrom, using t.Setenv("HOME", "") to deterministically
+// force os.UserHomeDir to fail on Unix (UserHomeDir reads $HOME directly)
+// rather than relying on — or skipping under — whatever the ambient test
+// environment's real home-directory resolvability happens to be. In the
+// "HOME unset" scenario (cron jobs, minimal containers, stripped
+// environments) a leading-tilde operand must earn a non-contained
+// (escapeRepo) verdict, never `contained`, so every caller (classifyFileTool,
+// containPathOperands, containWriteOperands) denies rather than allows.
 func TestContainmentNoHomeTildeFailsClosed(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")

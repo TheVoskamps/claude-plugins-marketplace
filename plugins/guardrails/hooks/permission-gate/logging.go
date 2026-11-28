@@ -8,8 +8,24 @@ import (
 	"time"
 )
 
-// logEnvVar overrides the evolution-log path (used by tests). When set, the
-// gate appends to that file instead of the default location.
+// The evolution log: one JSON line per ASK, DENY and DEFER, plus a warning
+// line (logWarning) whenever the gate's own input earns one, appended to
+// ~/.claude/logs/permission-gate.jsonl or to the PERMISSION_GATE_LOG override.
+//
+// The DEFER rows are what make it a tuning input rather than a tally: a defer
+// is a call the gate leaves to whatever grades it next, and the record tells
+// whoever tunes that grader what the gate could and could not establish about
+// the same call. A defer's analysis travels ONLY here — emitDecision omits it
+// from stdout — so the gate puts no words in the judge's mouth. An ALLOW verdict
+// gets no row of its own, since the allow track exists to keep the hot path
+// out of this feed; a warning row is written whatever the verdict, so an
+// allowed call can still carry one.
+//
+// A log the gate creates is mode 0600 in a 0750 directory; an existing file or
+// directory keeps its mode.
+
+// logEnvVar overrides the evolution-log path. When set, the gate appends to
+// that file instead of the default location.
 const logEnvVar = "PERMISSION_GATE_LOG"
 
 // logRecord is one structured, append-only evolution-log entry. It
@@ -100,7 +116,11 @@ func appendLogRecord(rec logRecord) {
 	// Cleaning the path as given would drop a `..` lexically, before the
 	// kernel follows a symlink ahead of it, and so move the log. Resolving the
 	// directory's symlinks first leaves a path that cleans to the file the
-	// kernel opens for the path as given.
+	// kernel opens for the path as given. MkdirAll above creates the LEXICAL
+	// directory, though, so when the kernel-resolved directory is missing the
+	// record is dropped after creating the lexical one, and when the lexical
+	// one cannot be created the record is dropped even though the
+	// kernel-resolved directory exists.
 	dir, file := filepath.Split(path)
 	dir, err = filepath.EvalSymlinks(dir)
 	if err != nil {

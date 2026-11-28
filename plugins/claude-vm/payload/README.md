@@ -1438,11 +1438,11 @@ hand.
 
 **Guardrails carve-out.** The `guardrails` permission gate roots its
 operator carve-out on the config home and the state home separately, so
-a `~/.config/guardrails/config.yml` that lists `claude-vm/**` under
-`config-home` alone reaches the config and nothing under the state
-root. An operator who wants tool-mediated reads of the cached binary or
-the images — a worktree-isolated agent fetching a real guest `claude`,
-say — adds `claude-vm/**` under `state-home` as well. The launcher run
+a carve-out that lists claude-vm's directory under the config home
+alone reaches the config and nothing under the state root. An operator
+who wants tool-mediated reads of the cached binary or the images — a
+worktree-isolated agent fetching a real guest `claude`, say — lists it
+under the state home as well. The launcher run
 from the operator's own terminal, and anything inside the guest, is not
 a tool call and is unaffected.
 

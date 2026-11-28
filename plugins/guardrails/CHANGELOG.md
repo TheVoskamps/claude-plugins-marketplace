@@ -1,5 +1,30 @@
 # guardrails changelog
 
+## 0.20.1 — 2026-11-27
+
+The plugin's README is now the whole user manual: it describes the
+gate's outcomes, the optional `~/.config/guardrails/config.yml` and the
+gate's limits. The separate permission-gate README is gone; what it
+said about the gate's internals now sits in the gate's source.
+
+- `gh auth login --hostname=<host>` now holds for a human click, as the
+  `--hostname <host>` and `-h <host>` spellings do, and so does
+  `aws configure export-credentials`.
+- The new `hooks/permission-gate/rebuild-binaries.sh` tests, lints and
+  cross-compiles the gate and installs the binaries under `hooks/bin/`.
+  It exits 0 when they are installed, 1 on any failure and 2 on a usage
+  error.
+- The script builds only from committed source. It refuses a working
+  tree that is not clean, a gitignored file in the gate's module
+  directory and any `GOFLAGS` value, and runs every `go` command with
+  `GOWORK=off`.
+- The committed binaries are built without VCS stamps, so a rebuild of
+  the same source with the same Go release matches them byte for byte.
+- The deny an unrunnable gate binary gets now names
+  `rebuild-binaries.sh` as the fix. The deny an unsupported platform
+  gets says to add the platform to the script's `TARGETS` first; the
+  script creates the new platform's directory under `hooks/bin/`.
+
 ## 0.20.0 — 2026-11-26
 
 The gate honors an account config directory. When `CLAUDE_CONFIG_DIR`

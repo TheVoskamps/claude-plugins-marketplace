@@ -10,8 +10,8 @@ import (
 
 // readOnlyUtility is the curated read-only-utility classifier: it
 // auto-ALLOWs a fixed set of text/data utilities when their invocation is
-// provably non-mutating, instead of deferring (which then fails to match any
-// settings.json allow entry and prompts the user). These program heads are the
+// provably non-mutating, instead of deferring a call the gate has positive
+// grounds to clear (BucketAllow's bar). These program heads are the
 // single largest source of permission prompts in practice.
 //
 // The posture invariants that make the ALLOW safe, all inherited from the

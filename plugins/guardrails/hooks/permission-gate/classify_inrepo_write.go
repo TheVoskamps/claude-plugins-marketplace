@@ -10,10 +10,9 @@ import (
 // The agent can already mutate any in-repo file via the Write/Edit tools, which
 // Engine B lets through when the target is contained in the worktree. The
 // EQUIVALENT mutation expressed as a shell one-liner — `sed -i`, `cp src dst`,
-// `mv a b`, `tee file`, `mkdir sub/dir`, `touch file` — currently DEFERS and
-// then prompts, because settings.json has no allow entry and the gate had no
-// opinion. That asymmetry produces prompts for operations no more dangerous than
-// the file-tool writes already permitted.
+// `mv a b`, `tee file`, `mkdir sub/dir`, `touch file` — is no more dangerous
+// than the file-tool write it mirrors, and a contained target is in the region
+// BucketAllow designates safe by construction.
 //
 // classifyInRepoWrite auto-ALLOWs a curated set of file-mutating programs ONLY
 // when every path operand the program writes (or reads, for cp/mv sources) is
