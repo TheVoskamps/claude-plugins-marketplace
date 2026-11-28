@@ -710,9 +710,10 @@ You run it yourself, as you run a style-fix round:
    <its output, verbatim — or omit the section when it reports a clean
    trial merge>
 
-   Ruling on the conflicts: <the human's answer, quoted, on the
-   conflicts the previous rebase round could not resolve — or omit the
-   line on a round no such answer precedes>
+   Ruling on the previous round's stop: <the ruling, quoted, on what
+   the previous rebase round escalated — the conflicts it could not
+   resolve, or any other stop it reported — or omit the line on a round
+   no such ruling precedes>
 
    Rebase per your agent definition. Report back each conflict and what
    settled it, the new head SHA, and what you could not resolve.
@@ -733,12 +734,19 @@ On its return:
   nothing. Put the conflicts it quoted to the human as a decision of
   class `rebase-conflict`, per "Putting a decision to the human", then
   post a new rebase-round brief carrying the human's answer on its
-  `Ruling on the conflicts:` line and spawn `issue-fixer` again.
+  `Ruling on the previous round's stop:` line and spawn `issue-fixer`
+  again.
 - **Exit 13 from `git-branch-sync checkout`** — handle it per "A
-  checkout refused because another worktree holds the branch".
+  checkout refused because another worktree holds the branch". A
+  reclaim produces no ruling, so the re-spawn runs on the brief already
+  on the PR and no new brief is posted.
 - **Any other stop** — a refused push, another non-zero
   `git-branch-sync` exit, or anything else it reports instead of a push
-  — is an escalation: handle it per "When a teammate escalates".
+  — is an escalation: handle it per "When a teammate escalates". Its
+  re-dispatch is a new rebase-round brief carrying that section's
+  ruling — yours, quoting the sentence that settles the question, or
+  the human's direction — on its `Ruling on the previous round's stop:`
+  line.
 
 A rebase round does not count against `code-review-max-rounds`. Track
 the number per PR and report it in the Final Report summary.

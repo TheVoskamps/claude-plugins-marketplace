@@ -248,8 +248,8 @@ into a brief.
    posts inside the code loop when the PR's base moved under paths the
    PR changes, carries no finding either: it names the round as a
    rebase round and carries the overlapping files, any conflicts
-   `github-prs:pr-merge-conflicts` reported, and the human's ruling on
-   conflicts a previous rebase round could not resolve, and the commit
+   `github-prs:pr-merge-conflicts` reported, and the ruling on any stop
+   a previous rebase round escalated, and the commit
    it drove is an in-loop rebase, which "What changed in response"
    names as such rather than as a fix or a merge-readiness remedy. A
    brief from the close-out's merge-readiness
