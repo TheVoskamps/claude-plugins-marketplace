@@ -97,6 +97,9 @@ expect_record() {
     --arg captured "$captured" --arg content "$content" \
     '[$kind, $source, $tool, "s-1", $branch, $captured, $content] | @json')
   actual=$(yq -o json -I 0 '[.kind, ."source-path", .tool, ."session-id", .branch, ."captured-at", .content]' "$files" 2>&1)
+  # yq and jq escape DEL, U+2028 and U+2029 differently, so the read-back
+  # is re-encoded by jq before the two are compared.
+  actual=$(printf '%s' "$actual" | jq -c . 2>/dev/null || printf '%s' "$actual")
   read_back=$(yq -o json -I 0 'keys' "$files" 2>&1)
   if [ "$read_back" != '["kind","source-path","tool","session-id","branch","captured-at","content"]' ]; then
     fail "$label" "keys: $read_back"
@@ -228,11 +231,22 @@ expect_record "Edit: the record holds the file's content read after the edit" \
 
 path="$REPO/.claude/agent-memory/issue-developer/MEMORY.md"
 for content in "no trailing newline" $'two trailing\n\n' $'  leading spaces\nthen none\n' \
-  $'\n\nleading blank lines\n' $'\n' $'key: value # not a comment\n' ""; do
+  $'\n\nleading blank lines\n' $'\n' $'key: value # not a comment\n' "" \
+  $'crlf\r\nline\r\n' $'bell\a and escape\e\n' $'del\x7f\n' $'next line\xc2\x85here\n' \
+  $'line\xe2\x80\xa8separator\n' $'paragraph\xe2\x80\xa9separator\n' $'c1\xc2\x9acontrol\n'; do
   run_hook "content $(jq -n -c --arg c "$content" '$c')" "$(event Write "$path" "$REPO" "$content")"
   expect_record "content $(jq -n -c --arg c "$content" '$c') reads back unchanged" \
     agent-project "$path" Write work "$content"
 done
+
+# --- branch names YAML would read as something other than a string -----------------
+
+for branch in 0x1F 0o17 0b101 1_000 1e3 +1 2026-11-27 yes Null; do
+  git -C "$REPO" symbolic-ref HEAD "refs/heads/$branch"
+  run_hook "branch $branch" "$(event Write "$path" "$REPO" $'b\n')"
+  expect_record "branch $branch reads back as a string" agent-project "$path" Write "$branch" $'b\n'
+done
+git -C "$REPO" symbolic-ref HEAD refs/heads/work
 
 # --- calls that leave no record ---------------------------------------------------
 
