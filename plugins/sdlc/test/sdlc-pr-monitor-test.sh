@@ -10,8 +10,9 @@
 # polling on to a terminal line however long it takes, the sleep
 # chunking of a long interval, a recoverable pr-view or
 # pr-ready-to-merge failure retried after the retry wait up to the retry
-# limit, the usage errors, a failing pr-view or pr-ready-to-merge, and a
-# failing command the script does not wrap.
+# limit, the usage errors, a failing pr-view or pr-ready-to-merge, a
+# failing command the script does not wrap, and a failing removal of the
+# temporary file on exit.
 #
 # Needs bash and the POSIX utilities. Reaches no network.
 #
@@ -436,7 +437,8 @@ usage_case() {
   check "$RC" 2 "usage: $* exits 2"
 }
 usage_case "$PR" 60
-# The retired three-argument form, kept as a refusal case on purpose.
+# A call without <retry-wait> and <max-retries> is refused, never run
+# with values of the script's own.
 usage_case "$PR" 60 3
 usage_case "$PR" 60 3 45
 usage_case "$PR" 60 3 45 2 0
