@@ -1707,7 +1707,8 @@ func TestHarnessSessionShape(t *testing.T) {
 // root and asserts that every bundled-skills version/hash pair and every
 // session scratchpad/ or tasks/ directory matches the shape the gate blesses.
 // Fixtures can only restate the author's belief about the layout; the live
-// directories are the ground truth. It SKIPS when the root is absent,
+// directories are the ground truth. It SKIPS when the root is absent, is not
+// a usable root (a symlink, not a directory, or owned by another uid), is
 // unreadable, or holds none of those directories (a fresh machine, a Linux CI
 // box), where there is nothing to check.
 //
