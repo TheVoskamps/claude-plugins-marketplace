@@ -756,6 +756,9 @@ unset _claude_vm_i
 # document never conflates "user configured this as empty" with "user
 # didn't touch this at all".
 #
+# The merge does not resolve a YAML alias, so the launcher refuses one in any
+# config file (claude_vm_check_no_aliases) before it merges.
+#
 # Implementation note: yq's `*` deep-merge clobbers arrays (repo array
 # replaces global array), which is the WRONG semantics for our lists.
 # So we deep-merge for scalars (step 1), explicitly recompute each list
@@ -776,13 +779,11 @@ claude_vm_merge_config() {
 
   # Step 1: scalar layer via deep merge (second doc wins on scalars).
   # Arrays from the repo doc temporarily clobber global arrays here;
-  # fixed in step 2. Steps 1 and 2 resolve each layer's aliases first, so the
-  # merged document holds the values their anchors name and never an alias
-  # whose anchor it no longer carries.
+  # fixed in step 2.
   local scalars rc=0
   scalars="$(
     yq eval-all '
-      (select(fileIndex == 0) | explode(.)) * (select(fileIndex == 1) | explode(.))
+      select(fileIndex == 0) * select(fileIndex == 1)
     ' "$g" "$r" 2>/dev/null
   )" || {
     echo "claude-vm: failed to merge config (scalar layer)" >&2
@@ -800,8 +801,8 @@ claude_vm_merge_config() {
     local list_yaml
     list_yaml="$(
       yq eval-all "
-        [select(fileIndex == 0) | explode(.) | ${key} // [] | .[]]
-          + [select(fileIndex == 1) | explode(.) | ${key} // [] | .[]]
+        [select(fileIndex == 0) | ${key} // [] | .[]]
+          + [select(fileIndex == 1) | ${key} // [] | .[]]
         | unique
       " "$g" "$r" 2>/dev/null
     )" || {
@@ -1041,11 +1042,12 @@ claude_vm_scalar() {
 #   int          an `!!int` written as decimal digits
 #   string|path  any scalar but a `!!bool`, so `false` is not taken as the
 #                string `false`
-#   a|b|...      a `!!str` that is one of the alternatives
+#   a|b|...      a `!!str` equal to one of the alternatives, each compared
+#                whole, so a value joining several with `|` is refused
 # A `!!map` or `!!seq` is refused for every type. Any other type column
 # spelling is not a scalar type, and is accepted.
 claude_vm_check_typed_value() {
-  local name="$1" type="$2" tag="$3" val="$4" want ok=0
+  local name="$1" type="$2" tag="$3" val="$4" want ok=0 rest alt
   case "$type" in
     bool)
       want="true or false"
@@ -1069,11 +1071,21 @@ claude_vm_check_typed_value() {
       ;;
     *\|*)
       want="one of $type"
-      if [ "$tag" = '!!str' ]; then
-        case "|$type|" in
-          *"|$val|"*) ok=1 ;;
-        esac
-      fi
+      case "$tag:$val" in
+        *'|'*)
+          echo "claude-vm: $name must be $want, got '$val', which joins several; give one" >&2
+          return 1
+          ;;
+        '!!str:'*)
+          rest="$type"
+          while :; do
+            alt=${rest%%"|"*}
+            [ "$val" = "$alt" ] && ok=1
+            [ "$alt" = "$rest" ] && break
+            rest=${rest#*"|"}
+          done
+          ;;
+      esac
       ;;
     *) return 0 ;;
   esac
@@ -1089,22 +1101,25 @@ claude_vm_check_typed_value() {
 # claude_vm_check_scalar <file> <key> -- check <key>'s value in the config
 # file <file> against its key-table type with claude_vm_check_typed_value.
 # An absent or null key, and one written as `""`, is unset and passes: the
-# value used is then the key table's default. Aliases are resolved first, as
-# claude_vm_merge_config resolves them, so `cpus: *a` is checked as the value
-# its anchor holds rather than read as an untagged, unset key. A yq read that
-# fails, such as on a file that does not parse or an alias naming no anchor,
-# fails the check.
+# value used is then the key table's default. A value yq gives no tag is a
+# YAML alias, which the launcher refuses first (claude_vm_check_no_aliases),
+# and fails here too. A yq read that fails, such as on a file that does not parse, fails
+# the check.
 claude_vm_check_scalar() {
   local file="$1" key="$2" tag val
-  tag="$(yq eval "explode(.) | .${key} | tag" "$file" 2>/dev/null)" ||
+  tag="$(yq eval ".${key} | tag" "$file" 2>/dev/null)" ||
     {
       echo "claude-vm: could not read $key from $file" >&2
       return 1
     }
   case "$tag" in
-    '' | '!!null') return 0 ;;
+    '!!null') return 0 ;;
+    '')
+      echo "claude-vm: $key in $file is a YAML alias, which claude-vm does not resolve" >&2
+      return 1
+      ;;
   esac
-  val="$(yq eval "explode(.) | .${key}" "$file" 2>/dev/null)" ||
+  val="$(yq eval ".${key}" "$file" 2>/dev/null)" ||
     {
       echo "claude-vm: could not read $key from $file" >&2
       return 1
@@ -1117,21 +1132,25 @@ claude_vm_check_scalar() {
 
 # claude_vm_check_map_values <file> <key> -- check every value of the map
 # <key> in the config file <file> against the element type of <key>'s
-# `map(<type>)` key-table type with claude_vm_check_typed_value, aliases
-# resolved first. An absent or null <key> passes; one that is not a map fails.
-# A map or list value is checked by its tag alone, so `@tsv` never sees one.
-# A yq read that fails fails the check.
+# `map(<type>)` key-table type with claude_vm_check_typed_value. An absent or
+# null <key> passes; one that is not a map fails, an alias, which yq gives no
+# tag, included. A map or list value is checked by its tag alone, so `@tsv`
+# never sees one. A yq read that fails fails the check.
 claude_vm_check_map_values() {
   local file="$1" key="$2" tab tag type records record ref val
   tab=$'\t'
-  tag="$(yq eval "explode(.) | .${key} | tag" "$file" 2>/dev/null)" ||
+  tag="$(yq eval ".${key} | tag" "$file" 2>/dev/null)" ||
     {
       echo "claude-vm: could not read $key from $file" >&2
       return 1
     }
   case "$tag" in
-    '' | '!!null') return 0 ;;
+    '!!null') return 0 ;;
     '!!map') : ;;
+    '')
+      echo "claude-vm: $key in $file is a YAML alias, which claude-vm does not resolve" >&2
+      return 1
+      ;;
     *)
       echo "claude-vm: $key must be a map, got a $tag" >&2
       return 1
@@ -1140,11 +1159,12 @@ claude_vm_check_map_values() {
   type="$(claude_vm_config_key_type "$key")"
   type=${type#"map("}
   type=${type%")"}
+  # The third field is the value, or empty for a map, list or null. It is the
+  # first of the selected value and "", since `// ""` would empty a `false` too.
   records="$(yq eval "
-    explode(.) | .${key} | to_entries | .[]
+    .${key} | to_entries | .[]
     | [.key, (.value | tag),
-       (if (.value | tag) == \"!!map\" or (.value | tag) == \"!!seq\" or (.value | tag) == \"!!null\"
-        then \"\" else .value end)]
+       ([.value | select(tag != \"!!map\" and tag != \"!!seq\" and tag != \"!!null\")] + [\"\"] | .[0])]
     | @tsv
   " "$file" 2>/dev/null)" ||
     {
@@ -1160,6 +1180,33 @@ claude_vm_check_map_values() {
     val=${val#*"$tab"}
     claude_vm_check_typed_value "${key}['$ref']" "$type" "$tag" "$val" || return 1
   done <<<"$records"
+}
+
+# claude_vm_check_no_aliases <file>... -- fail, naming the file, when a config
+# file uses a YAML alias (`*name`) anywhere: as a value, a list entry, a map
+# key or a `<<` merge. An anchor nothing refers to is allowed. A path that is
+# empty or names no file is skipped, and a file yq cannot read, such as one
+# whose alias names no anchor, fails.
+#
+# Aliases are refused rather than resolved because the raw-file gates read a
+# file as written: `has()` does not follow an alias, so a sub-key reaching the
+# merge through one, as in `claude: {plugins: *p}`, would pass a placement gate
+# unseen. yq gives an alias node no tag and every other node one, so the
+# untagged nodes `...` reaches, keys included, are the aliases.
+claude_vm_check_no_aliases() {
+  local file n
+  for file in "$@"; do
+    [ -n "$file" ] && [ -f "$file" ] || continue
+    n="$(yq eval-all '[... | select(tag == "")] | length' "$file" 2>/dev/null)" ||
+      {
+        echo "claude-vm: could not read $file" >&2
+        return 1
+      }
+    if [ "$n" != 0 ]; then
+      echo "claude-vm: $file uses a YAML alias (*name), which claude-vm does not resolve; write the value out in full" >&2
+      return 1
+    fi
+  done
 }
 
 # claude_vm_check_scalars <global_bake> <repo_bake> <global_boot> <repo_boot>
@@ -2347,6 +2394,10 @@ unset _claude_vm_k
 # `enabled`, answered *false* and the launch proceeded. Only `: []` and `: ""`
 # on a NON-list key were caught, because no prune pass reaches those.
 # config-test.sh's negative control holds both halves of that fact.
+#
+# `has` does not follow a YAML alias, so `claude: {plugins: *p}` answers false
+# here whatever `p` holds; the launcher has refused every alias
+# (claude_vm_check_no_aliases) before this runs.
 #   $1 -- a RAW config file path (bake or boot, global or repo), pre-merge
 #   $2 -- the claude.plugins sub-key ('bake', 'enabled', ...)
 claude_vm_plugin_raw_has_key() {
@@ -2571,7 +2622,8 @@ claude_vm_env_files() {
 # two keys out of the prune. (Asking the merged document is what shipped in the
 # first round of issue #135: a valueless `copy:` in a bake file was accepted and
 # the image built, verified by a real launch. config-test.sh's negative control
-# holds that shape.)
+# holds that shape.) As with claude_vm_plugin_raw_has_key, an alias would hide
+# the sub-key from `has`, and the launcher has refused every alias first.
 #   $1 -- a RAW bake config file path (global or repo), pre-merge
 #   $2 -- the sub-key ('copy' or 'files')
 claude_vm_env_bake_has_key() {
@@ -3327,7 +3379,8 @@ claude_vm_render_guest_settings() {
   # sees the empty ref and says so. That entry ABORTS rather than being skipped
   # -- an override no plugin can ever match is a typo, and this render is the
   # one place claude.plugins.enabled's keys are validated. A map or list value
-  # is read by its tag alone, so `@tsv` never sees one.
+  # is read by its tag alone, so `@tsv` never sees one: the value field is
+  # empty for it, as claude_vm_check_map_values builds it.
   #
   # The map is TWO PARALLEL INDEXED ARRAYS, not an associative array, because
   # this render is launcher-reachable and stock macOS /bin/bash is 3.2, which
@@ -3349,8 +3402,7 @@ claude_vm_render_guest_settings() {
     .claude.plugins.enabled // {}
     | to_entries | .[]
     | [.key, (.value | tag),
-       (if (.value | tag) == "!!map" or (.value | tag) == "!!seq" or (.value | tag) == "!!null"
-        then "" else .value end)]
+       ([.value | select(tag != "!!map" and tag != "!!seq" and tag != "!!null")] + [""] | .[0])]
     | @tsv
   ' "$file" 2>/dev/null)" ||
     {

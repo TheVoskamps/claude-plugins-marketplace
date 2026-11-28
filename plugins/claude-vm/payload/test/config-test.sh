@@ -11,9 +11,11 @@
 # Several cases leave pure-helper territory, and each RUNS the real code
 # against records from the real emitter rather than grepping the source:
 # boot_apt_phase, boot_plugin_phase and boot_mount_phase sliced out of
-# build-guest-image.sh, and the launcher's extra-mount loop and whole
-# config-load gate block sliced out of claude-vm.sh by line range, since
-# they are bare top-level code rather than functions. Together they assert
+# build-guest-image.sh, and the launcher's extra-mount loop and its
+# config-load gate block, from the merge through the placement gate, sliced
+# out of claude-vm.sh by line range, since they are bare top-level code rather
+# than functions. The raw-file checks that run before the merge are driven
+# through the whole claude-vm.sh instead. Together they assert
 # that a record's empty middle field and empty leading field each survive the
 # split, and that a mounts or claude.marketplaces entry missing its key field
 # aborts the launch naming it. A TSV split case carries a negative control
@@ -545,7 +547,7 @@ assert_eq "prune: scalar-bearing claude map survives with only its scalar" \
 assert_eq "prune: scalar-only merge has no packages key (never set)" \
   "false" "$(yq eval 'has("packages")' "$MERGED_SCALAR_ONLY")"
 
-# The populated-both-layers fixture ($MERGED from Test 1) must be
+# The populated-both-layers fixture ($MERGED_BAKE from Test 1) must be
 # UNAFFECTED by pruning -- every list key it set stays present with its
 # full unioned entry count (regression guard: pruning must not touch a
 # non-empty list).
@@ -947,10 +949,12 @@ assert_eq "render: de-duplicated ref is enabled" \
 # ---------------------------------------------------------------------
 # Test 15: claude.plugins.enabled validation (issue #104).
 #
-# The render validates the enabled map ONCE: every value must be a boolean and
-# every key must name an installed plugin ref (present in bake ++
-# install_at_boot). A bad value or an unknown key ABORTS (non-zero), so a config
-# typo stops the launch rather than silently dropping/misspelling a toggle.
+# The render validates the enabled map of the merged document: every value must
+# be a boolean and every key must name an installed plugin ref (present in bake
+# ++ install_at_boot). A bad value or an unknown key ABORTS (non-zero), so a
+# config typo stops the launch rather than silently dropping/misspelling a
+# toggle. The launcher has checked the values on the raw files already
+# (claude_vm_check_scalars, Test 39); these cases drive the render's own check.
 # ---------------------------------------------------------------------
 
 # Accept: a valid enabled map (all keys installed, all boolean values) renders.
@@ -3911,7 +3915,7 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# Test 33: the guest boot launcher's boot_mount_phase (issue #157).
+# Test 35: the guest boot launcher's boot_mount_phase (issue #157).
 #
 # The GUEST half of `mounts:`. Extracted from the <<'BOOT' heredoc in
 # build-guest-image.sh by line range, the same way boot_apt_phase (Test 23) and
@@ -5148,6 +5152,11 @@ gate_case "claude.renderer: classic passes" passed "" \
   "claude:
   renderer: classic
 $UAB_TAIL"
+gate_case "claude.renderer: both alternatives joined aborts" aborted \
+  "claude.renderer must be one of classic|fullscreen, got 'classic|fullscreen', which joins several" \
+  "claude:
+  renderer: classic|fullscreen
+$UAB_TAIL"
 gate_case "repo.copy_back: an unlisted value aborts" aborted \
   "repo.copy_back must be one of local|none, got 'remote'" \
   "repo:
@@ -5192,10 +5201,11 @@ $UAB_TAIL"
 #
 # For each key-table row of shape `scalar` and a type that is not a map, a
 # value of the row's type passes, unset passes, and each wrong value for the
-# type aborts naming the key, written directly and through a YAML alias. The
-# rows are read off the key table, so a new row is covered by gaining it. A
-# `map(bool)` row has each of its values checked the same way, a map or list
-# value included, since @tsv cannot render one and the merge prunes `{}`.
+# type aborts naming the key; an enumeration value is compared against each
+# alternative whole, so one joining several with `|` aborts. The rows are read
+# off the key table, so a new row is covered by gaining it. A `map(bool)` row
+# has each of its values checked the same way, a map or list value included,
+# since @tsv cannot render one and the merge prunes `{}`.
 # ---------------------------------------------------------------------
 
 # nest_yaml <dotted-key> <yaml-value> -- print a document setting the key.
@@ -5213,23 +5223,14 @@ nest_yaml() {
   done
 }
 
-# scalar_case <key> <file-type> <yaml-value> <expected> [<anchor-value>] --
-# run claude_vm_check_scalars with the key set to the value in a file of its
-# file type, once as the global file and once as the repo file, the other three
+# scalar_case <key> <file-type> <yaml-value> <expected> -- run
+# claude_vm_check_scalars with the key set to the value in a file of its file
+# type, once as the global file and once as the repo file, the other three
 # files absent, and assert "pass", or "abort" with a diagnostic naming the key,
-# for each. With <anchor-value>, the file first sets an unrelated top-level key
-# to it under the anchor `&a`, so a <yaml-value> of `*a` reaches the key only
-# through the alias.
+# for each.
 scalar_case() {
-  local key="$1" file="$2" val="$3" want="$4" doc="$WORK/scalar-case.yml" got err tier label
-  label="$val"
-  if [ "$#" -ge 5 ]; then
-    printf 'anchored: &a %s\n' "$5" >"$doc"
-    nest_yaml "$key" "$val" >>"$doc"
-    label="$val -> $5"
-  else
-    nest_yaml "$key" "$val" >"$doc"
-  fi
+  local key="$1" file="$2" val="$3" want="$4" doc="$WORK/scalar-case.yml" got err tier
+  nest_yaml "$key" "$val" >"$doc"
   for tier in global repo; do
     case "$file:$tier" in
       bake:global) err="$(claude_vm_check_scalars "$doc" "" "" "" 2>&1)" && got=pass || got=abort ;;
@@ -5243,7 +5244,7 @@ scalar_case() {
         *) got="abort without naming the key: $err" ;;
       esac
     fi
-    assert_eq "check_scalars: $key: $label ($tier) -> $want" "$want" "$got"
+    assert_eq "check_scalars: $key: $val ($tier) -> $want" "$want" "$got"
   done
 }
 
@@ -5266,7 +5267,6 @@ while IFS= read -r sc_row; do
   scalar_case "$sc_key" "$sc_file" '[]' abort
   scalar_case "$sc_key" "$sc_file" '{}' abort
   scalar_case "$sc_key" "$sc_file" '{a: 1}' abort
-  scalar_case "$sc_key" "$sc_file" '*a' abort '{x: 1}'
   case "$sc_type" in
     bool)
       scalar_case "$sc_key" "$sc_file" true pass
@@ -5275,8 +5275,6 @@ while IFS= read -r sc_row; do
       scalar_case "$sc_key" "$sc_file" '"false"' abort
       scalar_case "$sc_key" "$sc_file" True abort
       scalar_case "$sc_key" "$sc_file" 1 abort
-      scalar_case "$sc_key" "$sc_file" '*a' pass false
-      scalar_case "$sc_key" "$sc_file" '*a' abort 4
       ;;
     int)
       scalar_case "$sc_key" "$sc_file" 8 pass
@@ -5284,8 +5282,6 @@ while IFS= read -r sc_row; do
       scalar_case "$sc_key" "$sc_file" -1 abort
       scalar_case "$sc_key" "$sc_file" 0x10 abort
       scalar_case "$sc_key" "$sc_file" false abort
-      scalar_case "$sc_key" "$sc_file" '*a' pass 8
-      scalar_case "$sc_key" "$sc_file" '*a' abort false
       ;;
     string | path)
       scalar_case "$sc_key" "$sc_file" some-value pass
@@ -5293,8 +5289,6 @@ while IFS= read -r sc_row; do
       scalar_case "$sc_key" "$sc_file" '"false"' pass
       scalar_case "$sc_key" "$sc_file" false abort
       scalar_case "$sc_key" "$sc_file" true abort
-      scalar_case "$sc_key" "$sc_file" '*a' pass some-value
-      scalar_case "$sc_key" "$sc_file" '*a' abort false
       ;;
     *\|*)
       scalar_case "$sc_key" "$sc_file" "${sc_type%%|*}" pass
@@ -5302,8 +5296,10 @@ while IFS= read -r sc_row; do
       scalar_case "$sc_key" "$sc_file" "\"${sc_type%%|*}\"" pass
       scalar_case "$sc_key" "$sc_file" not-listed abort
       scalar_case "$sc_key" "$sc_file" false abort
-      scalar_case "$sc_key" "$sc_file" '*a' pass "${sc_type%%|*}"
-      scalar_case "$sc_key" "$sc_file" '*a' abort not-listed
+      scalar_case "$sc_key" "$sc_file" "$sc_type" abort
+      scalar_case "$sc_key" "$sc_file" "${sc_type%%|*}|" abort
+      scalar_case "$sc_key" "$sc_file" "\"|${sc_type##*|}\"" abort
+      scalar_case "$sc_key" "$sc_file" "${sc_type%%|*}x" abort
       ;;
     *) assert_eq "check_scalars: $sc_key has a type this test covers" "covered" "$sc_type" ;;
   esac
@@ -5334,9 +5330,6 @@ while IFS= read -r sc_row; do
   scalar_case "$sc_key" "$sc_file" '{a@mp: {x: 1}}' abort
   scalar_case "$sc_key" "$sc_file" '{a@mp: {}}' abort
   scalar_case "$sc_key" "$sc_file" '{a@mp: true, b@mp: {}}' abort
-  scalar_case "$sc_key" "$sc_file" '{a@mp: *a}' pass false
-  scalar_case "$sc_key" "$sc_file" '{a@mp: *a}' abort '{x: 1}'
-  scalar_case "$sc_key" "$sc_file" '*a' abort '{a@mp: {}}'
 done <<EOF
 $SC_ROWS
 EOF
@@ -5351,19 +5344,17 @@ else
 fi
 assert_eq "check_scalars: an alias naming no anchor aborts" abort "$sc_v"
 
-# The merge resolves an alias, so the merged document carries the anchored
-# value and never the literal `*a` a reader would otherwise take for the value.
-printf 'anchored: &a 6\ncpus: *a\n' >"$WORK/sc-alias.yml"
-claude_vm_merge_config "$WORK/sc-alias.yml" "" >"$WORK/sc-alias-g.merged.yml"
-claude_vm_merge_config "" "$WORK/sc-alias.yml" >"$WORK/sc-alias-r.merged.yml"
-for sc_merged in "$WORK/sc-alias-g.merged.yml" "$WORK/sc-alias-r.merged.yml"; do
-  assert_eq "merge: an aliased scalar reaches the merged document as its value ($(basename "$sc_merged"))" \
-    "6" "$(claude_vm_scalar "$sc_merged" '.cpus' 'X')"
+# An alias the check is handed directly is not taken for an unset key: a
+# scalar and a map(bool) map written as an alias each abort naming the key.
+printf 'anchored: &a 4\ncpus: *a\n' >"$WORK/sc-alias.yml"
+printf 'anchored: &a {a@mp: true}\nclaude:\n  plugins:\n    enabled: *a\n' >"$WORK/sc-alias-map.yml"
+for sc_pair in "cpus:$WORK/sc-alias.yml" "claude.plugins.enabled:$WORK/sc-alias-map.yml"; do
+  sc_err="$(claude_vm_check_scalars "" "" "${sc_pair#*:}" "" 2>&1)" && sc_v=pass || sc_v=abort
+  case "$sc_v:$sc_err" in
+    "abort:claude-vm: ${sc_pair%%:*} in ${sc_pair#*:} is a YAML alias"*) sc_v=named ;;
+  esac
+  assert_eq "check_scalars: an aliased ${sc_pair%%:*} aborts naming the key" named "$sc_v"
 done
-printf 'anchored: &a [a@mp]\nclaude:\n  plugins:\n    install_at_boot: *a\n' >"$WORK/sc-alias-list.yml"
-claude_vm_merge_config "" "$WORK/sc-alias-list.yml" >"$WORK/sc-alias-list.merged.yml"
-assert_eq "merge: an aliased list key is unioned as its entries" \
-  "a@mp" "$(claude_vm_list_items "$WORK/sc-alias-list.merged.yml" '.claude.plugins.install_at_boot')"
 
 # The render reads each value by its tag, so a map value that reached it would
 # abort naming the ref rather than fail inside @tsv.
@@ -5396,6 +5387,127 @@ for sc_merged in "$WORK/sc-emptymap-g.merged.yml" "$WORK/sc-emptymap-r.merged.ym
   assert_eq "check_scalars: NEGATIVE CONTROL -- a {} scalar does not survive the merge ($(basename "$sc_merged"))" \
     pass "$sc_v"
 done
+
+# ---------------------------------------------------------------------
+# Test 40: claude_vm_check_no_aliases refuses a YAML alias in any position.
+#
+# An alias as a scalar value, a map value, a list entry, a map key and a `<<`
+# merge each aborts naming the file, in whichever of the four argument slots
+# the file sits; an anchor nothing refers to, a quoted "*x" and a file with no
+# alias pass, as do an empty path and one naming no file. Driven through the
+# real claude-vm.sh with run_uab (Test 37), an alias in each tier of both file
+# types aborts the launch naming that file. The negative controls show why the
+# refusal comes first: the placement gates' `has()` reads past an alias, so a
+# misplaced sub-key reached through one is not seen.
+# ---------------------------------------------------------------------
+
+# alias_case <label> <yaml> <expected> -- write <yaml> to a file, run
+# claude_vm_check_no_aliases with it in each argument slot, the other three
+# empty, and assert "pass", or "abort" with a diagnostic naming the file.
+alias_case() {
+  local doc="$WORK/alias-case.yml" slot got err
+  printf '%s\n' "$2" >"$doc"
+  for slot in 1 2 3 4; do
+    case "$slot" in
+      1) err="$(claude_vm_check_no_aliases "$doc" "" "" "" 2>&1)" && got=pass || got=abort ;;
+      2) err="$(claude_vm_check_no_aliases "" "$doc" "" "" 2>&1)" && got=pass || got=abort ;;
+      3) err="$(claude_vm_check_no_aliases "" "" "$doc" "" 2>&1)" && got=pass || got=abort ;;
+      4) err="$(claude_vm_check_no_aliases "" "" "" "$doc" 2>&1)" && got=pass || got=abort ;;
+    esac
+    if [ "$got" = abort ]; then
+      case "$err" in
+        "claude-vm: $doc uses a YAML alias"*) : ;;
+        *) got="abort without naming the file: $err" ;;
+      esac
+    fi
+    assert_eq "check_no_aliases: $1 (slot $slot) -> $3" "$3" "$got"
+  done
+}
+
+alias_case "a scalar value" 'anchored: &a 4
+cpus: *a' abort
+alias_case "a map value under claude.plugins" 'p: &p {bake: [a@mp]}
+claude: {plugins: *p}' abort
+alias_case "a list entry" 'h: &h example.com
+egress: {allow: [*h]}' abort
+alias_case "a map key" 'k: &k cpus
+*k : 4' abort
+alias_case "a << merge" 'base: &b {cpus: 2}
+proxy:
+  <<: *b
+  port: 3128' abort
+alias_case "an enabled value" 'f: &f false
+claude: {plugins: {enabled: {a@mp: *f}}}' abort
+alias_case "an anchor nothing refers to" 'cpus: &a 4' pass
+alias_case "a quoted *x" 'proxy: {cmd: "*x"}' pass
+alias_case "no alias" 'cpus: 4
+claude: {plugins: {install_at_boot: [a@mp], enabled: {a@mp: false}}}' pass
+alias_case "an empty file" '' pass
+
+if claude_vm_check_no_aliases "" "$WORK/does-not-exist.yml" "" "" 2>/dev/null; then
+  sc_v=pass
+else
+  sc_v=abort
+fi
+assert_eq "check_no_aliases: an empty path and an absent file are skipped" pass "$sc_v"
+
+printf 'cpus: *nowhere\n' >"$WORK/alias-dangling.yml"
+sc_err="$(claude_vm_check_no_aliases "$WORK/alias-dangling.yml" 2>&1)" && sc_v=pass || sc_v=abort
+assert_eq "check_no_aliases: an alias naming no anchor aborts" abort "$sc_v"
+case "$sc_err" in
+  "claude-vm: could not read $WORK/alias-dangling.yml"*) sc_v=named ;;
+  *) sc_v="$sc_err" ;;
+esac
+assert_eq "check_no_aliases: the unreadable-file abort names the file" named "$sc_v"
+
+# Through the launcher: each file carries a claude.plugins sub-key that its
+# file type never reads, reached through an alias -- the shape the placement
+# gate's `has()` misses (the negative controls below).
+for al_slot in global-boot repo-boot global-bake repo-bake; do
+  rm -f "$UAB/g.yml" "$UAB/r.yml" "$UAB/gk.yml" "$UAB/rk.yml"
+  printf '%s' "$UAB_TAIL" >"$UAB/r.yml"
+  al_gb="$UAB/absent-g.yml" al_gk="" al_rk=""
+  case "$al_slot" in
+    global-boot)
+      printf 'p: &p {bake: [a@mp]}\nclaude: {plugins: *p}\n' >"$UAB/g.yml"
+      al_gb="$UAB/g.yml" al_file="$UAB/g.yml"
+      ;;
+    repo-boot)
+      printf 'p: &p {bake: [a@mp]}\nclaude: {plugins: *p}\n%s' "$UAB_TAIL" >"$UAB/r.yml"
+      al_file="$UAB/r.yml"
+      ;;
+    global-bake)
+      printf 'p: &p {install_at_boot: [a@mp]}\nclaude: {plugins: *p}\n' >"$UAB/gk.yml"
+      al_gk="$UAB/gk.yml" al_file="$UAB/gk.yml"
+      ;;
+    repo-bake)
+      printf 'p: &p {install_at_boot: [a@mp]}\nclaude: {plugins: *p}\n' >"$UAB/rk.yml"
+      al_rk="$UAB/rk.yml" al_file="$UAB/rk.yml"
+      ;;
+  esac
+  al_got="$(run_uab "$al_gb" "$UAB/r.yml" "$al_gk" "$al_rk")"
+  assert_eq "launcher: an aliased claude.plugins map aborts naming the file ($al_slot)" \
+    aborted "$(uab_verdict "$al_got" "claude-vm: $al_file uses a YAML alias")"
+done
+
+# NEGATIVE CONTROLS: without the refusal, the placement gates miss a sub-key
+# reached through an alias.
+printf 'p: &p {bake: [a@mp]}\nclaude: {plugins: *p}\n' >"$WORK/alias-plugins.yml"
+if claude_vm_check_plugin_key_placement "" "" "$WORK/alias-plugins.yml" "" 2>/dev/null; then
+  sc_v=pass
+else
+  sc_v=abort
+fi
+assert_eq "check_plugin_key_placement: NEGATIVE CONTROL -- an aliased claude.plugins.bake in a boot file is not seen" \
+  pass "$sc_v"
+printf 'e: &e {copy: [HOME]}\nenv: *e\n' >"$WORK/alias-env.yml"
+if claude_vm_env_bake_has_key "$WORK/alias-env.yml" copy; then
+  sc_v=seen
+else
+  sc_v=missed
+fi
+assert_eq "env_bake_has_key: NEGATIVE CONTROL -- an aliased env.copy in a bake file is not seen" \
+  missed "$sc_v"
 
 # ---------------------------------------------------------------------
 # Summary

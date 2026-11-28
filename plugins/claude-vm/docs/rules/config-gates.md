@@ -30,7 +30,9 @@ a key written in an empty spelling reaches the merged document absent:
   to `''`, so the verdict depends on the layer.
 
 So a gate asking whether the operator wrote a key asks `has()` of each
-raw file, which also lets the diagnostic name the file. Never carve a
+raw file, which also lets the diagnostic name the file. `has()` does not
+follow a YAML alias, so the launcher refuses an alias in any config file
+before any gate reads one; a gate never resolves one itself. Never carve a
 key out of the prune instead: the prune exists so no consumer reads
 presence off a merged document.
 

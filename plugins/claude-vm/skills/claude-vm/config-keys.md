@@ -36,6 +36,10 @@ a quoted `"true"` is a string and not a boolean, and an unquoted `true` or
 `false` is a boolean and not a string or path. A scalar key left unset,
 `""` or valueless takes its default.
 
+A YAML alias (`*name`) anywhere in a config file aborts the launch, naming
+the file: the launcher does not resolve one, so write every value out in
+full.
+
 No config file holds a secret. The host's claude.ai OAuth credential is
 extracted from the macOS Keychain at launch, and a third-party API key
 reaches the guest by name through `env.copy` or by path through
