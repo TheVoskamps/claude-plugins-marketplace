@@ -7,8 +7,8 @@
 # nothing else, so each of these is written exactly once.
 #
 # Runs under bash 3.2 and depends on nothing beyond gh, jq, curl, the
-# github-tools plugin's github-ref and the base userland (awk, grep, sed, tr, mktemp): no associative arrays, no ${var,,},
-# no mapfile.
+# github-tools plugin's github-ref and the base userland (awk, grep, sed, tr,
+# mktemp): no associative arrays, no ${var,,}, no mapfile.
 
 ISS_PROGRAM=${0##*/}
 
@@ -951,8 +951,9 @@ iss_operand_board_config() {
 # current repository, repo#N under its owner on its host, owner/repo#N on its
 # host, host/owner/repo#N on another. A repo spelled exactly as this checkout's
 # issue-link-prefix takes owner/repo#N under its owner too, so no reference
-# printed here opens with the prefix followed by `#`. That prefix is ISS_HERE_LINK_PREFIX once iss_peek_link_prefix or
-# iss_load_config has run, and iss_read_link_prefix's otherwise.
+# printed here opens with the prefix followed by `#`. That prefix is
+# ISS_HERE_LINK_PREFIX once iss_peek_link_prefix or iss_load_config has run,
+# and iss_read_link_prefix's otherwise.
 iss_ref() {
   if ! iss_same_host "$1"; then
     printf '%s/%s/%s#%s' "$1" "$2" "$3" "$4"

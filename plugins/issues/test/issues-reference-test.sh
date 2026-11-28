@@ -8,9 +8,10 @@
 #
 # The accepted forms are those github-ref parses for an issue -- N, #N,
 # repo#N, owner/repo#N, host/owner/repo#N and a URL carrying an issues
-# segment; a pull segment is refused. Each form a verb prints is round-tripped under each
-# kind of issue-link-prefix -- `#`, empty, and a name -- because the prefix
-# decides which printed form parses back to the issue it was printed for.
+# segment; a pull segment is refused. Each form a verb prints is
+# round-tripped under each kind of issue-link-prefix -- `#`, empty, and a
+# name -- because the prefix decides which printed form parses back to the
+# issue it was printed for.
 #
 # Usage: issues-reference-test.sh    (exit 0 when every case passes)
 

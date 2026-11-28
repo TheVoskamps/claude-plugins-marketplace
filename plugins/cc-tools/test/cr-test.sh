@@ -7,8 +7,8 @@
 # claude's plugin list naming this checkout's github-tools: cr's argument
 # handling, repo detection, repository identity, ssh host aliases included,
 # settings layers and their merge, its refusals, a missing or disabled
-# github-tools among them, GIT_CONFIG_GLOBAL, --as
-# and the config directory, and exit status; the resolver's exec of the
+# github-tools among them, GIT_CONFIG_GLOBAL, --as and the config
+# directory, and exit status; the resolver's exec of the
 # enabled cc-tools, its --as, its refusals and its failed execs; and the
 # deploy hook's missing, differing, current and
 # unwritable targets and its unset or empty HOME.
