@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Post one comment on one issue, the body read from a file; with --marker,
-# edit or read the issue's marker comment instead. The contract is
+# edit the issue's marker comment instead, posting one only when it has none,
+# or, with --read, print that comment's body. The contract is
 # plugins/issues/skills/issue-comment/SKILL.md.
 set -uo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib/issues-common.sh
