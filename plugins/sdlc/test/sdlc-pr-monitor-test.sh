@@ -14,7 +14,8 @@
 # failing command the script does not wrap, and a failing removal of the
 # temporary file on exit.
 #
-# Needs bash and the POSIX utilities. Reaches no network.
+# Needs bash and the POSIX utilities. Reaches no network, and writes
+# nothing outside its sandbox.
 #
 # Usage: sdlc-pr-monitor-test.sh    (exit 0 when every case passes)
 
@@ -24,6 +25,11 @@ TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MONITOR="$TEST_DIR/../bin/sdlc-pr-monitor"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/sdlc-pr-monitor-test.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
+# Every monitor run creates its temporary file under TMPDIR, so pointing
+# TMPDIR into the sandbox keeps each run's writes inside it, a file the
+# monitor fails to remove included.
+mkdir -p "$SANDBOX/tmp"
+export TMPDIR="$SANDBOX/tmp"
 FAILURES=0
 PR='h.example/o/r#7'
 
@@ -486,6 +492,7 @@ serve view "$SANDBOX/MERGED"
 OUT=$(PATH="$SANDBOX/rm-fails:$SANDBOX/bin:$PATH" "$MONITOR" "$PR" 60 3 45 2 2>"$SANDBOX/err")
 RC=$?
 check "$RC.$(cat "$SANDBOX/err")" "0." "exit trap: a failed temporary-file removal keeps exit 0 and prints nothing"
+check "$(ls "$TMPDIR" | grep -c '^sdlc-pr-monitor\.')" 1 "exit trap: the file left behind is in the sandbox"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then
