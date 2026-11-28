@@ -742,6 +742,10 @@ check_report_count() {
   fi
 }
 
+# count_assess_report <report>: sets refusal to the reason the
+# assessment's count line is refused, or to empty when it holds. A blank
+# line opens the next block, so an add block is counted at its first line
+# below ADDS. When awk fails it removes <report> and dies.
 count_assess_report() {
   refusal=$(awk '
     { line = $0; sub(/[ \t\r]+$/, "", line) }
@@ -766,6 +770,9 @@ count_assess_report() {
   }
 }
 
+# count_generate_report <report>: sets refusal to the reason the list's
+# count line is refused, or to empty when it holds. When awk fails it
+# removes <report> and dies.
 count_generate_report() {
   refusal=$(awk '
     { line = $0; sub(/[ \t\r]+$/, "", line) }
