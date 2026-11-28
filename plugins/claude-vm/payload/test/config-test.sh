@@ -5206,9 +5206,8 @@ $UAB_TAIL"
 # alternative whole, so one joining several with `|` aborts, and a value holding
 # a newline aborts wherever the newline sits, a trailing one included. The rows
 # are read off the key table, so a new row is covered by gaining it. A
-# `map(bool)` row
-# has each of its values checked the same way, a map or list value included,
-# since @tsv cannot render one and the merge prunes `{}`.
+# `map(bool)` row has each of its values checked the same way, a map or list
+# value included, since @tsv cannot render one and the merge prunes `{}`.
 # ---------------------------------------------------------------------
 
 # nest_yaml <dotted-key> <yaml-value> -- print a document setting the key.

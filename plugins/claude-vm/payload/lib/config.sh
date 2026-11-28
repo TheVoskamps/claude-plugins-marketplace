@@ -2908,7 +2908,9 @@ claude_vm_env_file_assignments() {
 #   - a name outside [A-Za-z_][A-Za-z0-9_]*, from any source (a `set` key, a
 #     `copy` entry, a name declared by an `env.files` file).
 #   - a name the LAUNCHER owns (CLAUDE_VM_RESERVED_ENV_NAMES).
-#   - an `env.set` value that is not a scalar, or is explicitly valueless.
+#   - an `env.set` that cannot be read: an `env` that is not a map, or an alias.
+#   - an `env.set` value that is not a scalar, is explicitly valueless, or is
+#     an alias.
 #   - an `env.files` path that is not on the host, or that does not parse.
 #   - an `env.copy` name that is unset or EMPTY in this launcher's own
 #     environment.
