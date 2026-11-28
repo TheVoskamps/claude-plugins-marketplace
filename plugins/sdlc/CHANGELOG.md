@@ -13,7 +13,7 @@ open and unchanged, and nothing restarted it.
 - A recoverable failure is tried again after a fixed wait, with no
   backoff. It does not count as an unchanged poll, and a poll that
   completes restarts the count of consecutive failures.
-- Two config keys set the retry: `merge-poll-error-retry-seconds`, the
+- New config keys set the retry: `merge-poll-error-retry-seconds`, the
   wait, default `30`, and `merge-poll-error-max-retries`, how many
   consecutive failures are retried before the next one ends the watch,
   default `15`.
