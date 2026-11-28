@@ -1152,16 +1152,19 @@ claude_vm_check_typed_value() {
 
 # claude_vm_config_nonmap_nodes <file> -- print a `path<TAB>tag` record for
 # every node of <file> no deeper than two keys whose tag is neither `!!map`
-# nor `!!null`, the path's keys joined with `.` and the document's own path
-# empty. Those depths hold every proper prefix of a key-table key, and one of
-# these records naming a prefix is a parent that holds no keys: yq reads a key
-# under a scalar parent as untagged and empty, and fails to read one under a
-# list. Read it of a file with one document and no alias: an alias node gets a
-# record with an empty tag, and each further document adds its own records.
+# nor `!!null`, the path as a compact JSON array (`["claude","plugins"]`, and
+# `[]` for the document itself). JSON keeps a key holding a `.` one element,
+# so `"claude.plugins": 5` is not read as `claude: {plugins: 5}`, and escapes
+# a tab, so the first tab in a record ends the path. Those depths hold every
+# proper prefix of a key-table key, and one of these records naming a prefix
+# is a parent that holds no keys: yq reads a key under a scalar parent as
+# untagged and empty, and fails to read one under a list. Read it of a file
+# with one document and no alias: an alias node gets a record with an empty
+# tag, and each further document adds its own records.
 claude_vm_config_nonmap_nodes() {
   yq eval '
     .. | select((path | length) <= 2 and tag != "!!map" and tag != "!!null")
-    | [(path | join(".")), tag] | @tsv
+    | (path | @json) + "\t" + tag
   ' "$1" 2>/dev/null
 }
 
@@ -1169,20 +1172,22 @@ claude_vm_config_nonmap_nodes() {
 # claude_vm_config_nonmap_nodes printed for a file, print why <key> cannot be
 # read there, as `<parent> is a <tag>, not a map`, naming the shallowest
 # parent of <key> that is not a map. Prints nothing when every parent is one.
+# Each parent is matched as the JSON array yq prints for its path, built here
+# from <key>'s segments, which are bare names that JSON leaves unescaped.
 claude_vm_config_parent_fault() {
-  local records="$1" key="$2" tab prefix rest record p tag
+  local records="$1" key="$2" tab prefix elems json rest record p tag
   tab=$'\t'
-  prefix="" rest="$key"
+  prefix="" elems="" json="[]" rest="$key"
   while :; do
     while IFS= read -r record; do
       [ -n "$record" ] || continue
       p=${record%%"$tab"*}
       tag=${record#*"$tab"}
-      if [ "$p" = "$prefix" ]; then
-        if [ -z "$p" ]; then
+      if [ "$p" = "$json" ]; then
+        if [ -z "$prefix" ]; then
           echo "the document is a $tag, not a map"
         else
-          echo "$p is a $tag, not a map"
+          echo "$prefix is a $tag, not a map"
         fi
         return 0
       fi
@@ -1192,6 +1197,8 @@ claude_vm_config_parent_fault() {
       *) return 0 ;;
     esac
     prefix="${prefix:+$prefix.}${rest%%.*}"
+    elems="${elems:+$elems,}\"${rest%%.*}\""
+    json="[$elems]"
     rest=${rest#*.}
   done
 }
@@ -1199,17 +1206,20 @@ claude_vm_config_parent_fault() {
 # claude_vm_check_config_structure <file>... -- fail, naming the file, when a
 # config file is not one YAML document, when a parent of any key-table key
 # in it is not a map (`repo: 5` holds no `repo.mount`, `[1]` no key at all),
-# or when a string anywhere in it outside `env.set` holds a newline. A path
-# that is empty or names no file is skipped, and a yq read that fails fails
-# the check. The document count is checked before the rest; run it after
-# claude_vm_check_no_aliases, or an alias is reported as a parent with no tag.
+# or when a string anywhere in it, a map key included, holds a newline, other
+# than an `env.set` value. A path that is empty or names no file is skipped,
+# and a yq read that fails fails the check. The document count is checked
+# before the rest; run it after claude_vm_check_no_aliases, or an alias is
+# reported as a parent with no tag. The newline diagnostic names the string's
+# path, each newline in it written `\n`.
 #
 # Each is refused because the readers cannot see it: a read of a key in a
 # file of several documents answers once per document, a key under a scalar
 # parent reads as absent and takes its default, and a `$(...)` capture or a
 # one-entry-per-line list read strips or splits a newline, so `"clone\n"`
-# would be taken as `clone`. An `env.set` value is exempt: it may hold a
-# newline, and its reader keeps every one.
+# would be taken as `clone`, and a `claude.plugins.enabled` ref or an
+# `env.set` name read one per line would be split in two. An `env.set` value
+# is exempt: it may hold a newline, and its reader keeps every one.
 claude_vm_check_config_structure() {
   local file n records paths i=0 key len="${#CLAUDE_VM_CONFIG_KEYS[@]}" fault nl=$'\n'
   for file in "$@"; do
@@ -1238,10 +1248,14 @@ claude_vm_check_config_structure() {
       fi
       i=$((i + 5))
     done
+    # `...` visits map keys as well as values, and gives a key node its value's
+    # path, so under env.set a node is refused when a key on its path holds the
+    # newline, and exempt when only the value does.
     paths="$(yq eval '
-      .. | select(tag == "!!str" and test("\n"))
-      | select((path | length) < 2 or path[0] != "env" or path[1] != "set")
-      | path | join(".")
+      ... | select(tag == "!!str" and test("\n"))
+      | select((path | length) < 2 or path[0] != "env" or path[1] != "set"
+          or (path | join(".") | test("\n")))
+      | path | map(tostring | sub("\n", "\\n")) | join(".")
     ' "$file" 2>/dev/null)" ||
       {
         echo "claude-vm: could not read $file" >&2

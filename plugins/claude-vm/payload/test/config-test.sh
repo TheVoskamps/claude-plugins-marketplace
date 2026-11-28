@@ -5556,12 +5556,14 @@ assert_eq "env_bake_has_key: NEGATIVE CONTROL -- an aliased env.copy in a bake f
 # Test 41: claude_vm_check_config_structure refuses what the readers misread.
 #
 # A file of several YAML documents, a key-table key under a parent that is not
-# a map, the document itself not a map, and a string holding a newline outside
-# env.set each abort naming the file and the cause, in whichever argument slot
-# the file sits; a newline inside an env.set value, a leading `---`, an empty
-# file, an empty path and an absent file pass. Driven through the real
-# claude-vm.sh with run_uab (Test 37), each refused shape aborts the launch.
-# The negative controls show what each reader sees without the refusal.
+# a map, the document itself not a map, and a string holding a newline, a map
+# key such as an enabled ref or an env.set name included, each abort naming
+# the file and the cause, in whichever argument slot the file sits; a newline
+# inside an env.set value, a key whose name holds a `.`, a leading `---`, an
+# empty file, an empty path and an absent file pass. Driven through the real
+# claude-vm.sh with run_uab (Test 37), each refused shape aborts the launch
+# with a diagnostic no later gate prints. The negative controls show what
+# each reader sees without the refusal.
 # ---------------------------------------------------------------------
 
 # structure_case <label> <yaml> <expected> <diagnostic> -- write <yaml> to a
@@ -5613,7 +5615,16 @@ structure_case "a newline in a list entry" 'egress: {allow: [a.example, "b.examp
   "egress.allow.1 in $WORK/structure-case.yml holds a newline"
 structure_case "a newline in a mount field" 'mounts: [{host: "/a\n", tag: t}]' abort \
   "mounts.0.host in $WORK/structure-case.yml holds a newline"
+structure_case "a newline in an enabled ref" 'claude: {plugins: {enabled: {"a@mp\n": true}}}' abort \
+  "claude.plugins.enabled.a@mp\\n in $WORK/structure-case.yml holds a newline"
+structure_case "a newline in an env.set name" 'env: {set: {"A\nB": x}}' abort \
+  "env.set.A\\nB in $WORK/structure-case.yml holds a newline"
 structure_case "a newline in an env.set value" 'env: {set: {A: "x\ny\n"}}' pass ""
+structure_case "a dotted key spelling a parent" '"claude.plugins": 5' pass ""
+structure_case "a dotted key beside its real parent" '"claude.plugins": 5
+claude: {plugins: {bake: [a@mp]}}' pass ""
+structure_case "a dotted key beside a scalar parent" '"repo.mount": live
+repo: 5' abort "repo is a !!int, not a map, so claude-vm cannot read repo.mount"
 structure_case "a well-formed file" 'cpus: 2
 repo: {mount: live}
 claude: {plugins: {install_at_boot: [a@mp], enabled: {a@mp: false}}}' pass ""
@@ -5627,11 +5638,12 @@ fi
 assert_eq "check_config_structure: an empty path and an absent file are skipped" pass "$sc_v"
 
 # Through the launcher: each refused shape in the repo boot file aborts before
-# the type check's backstop.
+# the type check's backstop. egress holds only a list key, which the type check
+# does not read, so a scalar egress reaches no later gate that names it.
 for st_pair in "holds 2 YAML documents|cpus: 2
 ---
 cpus: 4
-" "repo is a !!int, not a map|repo: 5
+" "egress is a !!int, not a map|egress: 5
 " "claude.renderer in $UAB/r.yml holds a newline|claude: {renderer: \"classic\\n\"}
 "; do
   rm -f "$UAB/r.yml"
@@ -5642,13 +5654,17 @@ cpus: 4
 done
 
 # NEGATIVE CONTROLS: without the refusal, a key read answers once per document,
-# and a key under a scalar parent reads as absent, so it takes its default.
+# a key under a scalar parent reads as absent, so it takes its default, and an
+# env.set name holding a newline is read as two names.
 printf 'cpus: 2\n---\ncpus: 4\n' >"$WORK/structure-multi.yml"
 assert_eq "check_config_structure: NEGATIVE CONTROL -- a two-document file answers a read twice" \
   "2|---|4" "$(yq eval '.cpus' "$WORK/structure-multi.yml" | tr '\n' '|' | sed 's/|$//')"
 printf 'repo: 5\n' >"$WORK/structure-scalar.yml"
 assert_eq "check_config_structure: NEGATIVE CONTROL -- repo.mount under a scalar repo reads as its default" \
   clone "$(claude_vm_scalar "$WORK/structure-scalar.yml" .repo.mount clone)"
+printf 'env: {set: {"A\\nB": x}}\n' >"$WORK/structure-name.yml"
+assert_eq "check_config_structure: NEGATIVE CONTROL -- an env.set name holding a newline reads as two names" \
+  "A|B" "$(claude_vm_env_set_names "$WORK/structure-name.yml" | tr '\n' '|' | sed 's/|$//')"
 
 # ---------------------------------------------------------------------
 # Test 42: claude_vm_require_yq refuses a yq older than CLAUDE_VM_YQ_FLOOR.

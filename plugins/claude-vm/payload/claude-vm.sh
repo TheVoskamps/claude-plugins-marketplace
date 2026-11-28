@@ -185,8 +185,9 @@ claude_vm_check_no_aliases \
   "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" || exit 1
 
 # So does a file of more than one YAML document, a key-table key under a
-# parent that is not a map, and a string outside env.set holding a newline:
-# every reader below would see each of them as something else.
+# parent that is not a map, and a string, a map key included, holding a
+# newline anywhere but in an env.set value: every reader below would see each
+# of them as something else.
 claude_vm_check_config_structure \
   "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
   "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" || exit 1

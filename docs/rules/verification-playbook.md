@@ -178,10 +178,11 @@ instances.
 The bash ≥ 4 half of a two-interpreter run has no local shell on a
 stock macOS box — `/bin/bash` is the only one, and `command -v bash`
 resolves to it. The container is the only route, and the obstacle is
-not bash but yq: `plugins/claude-vm/payload` needs **mikefarah** yq v4
-(`yq eval`), while Debian's `yq` package is the unrelated Python
-wrapper (3.4.3), which makes every yq-touching assertion fail for a
-reason that has nothing to do with the change.
+not bash but yq: `plugins/claude-vm/payload` needs **mikefarah** yq
+v4.54.3 or a later v4 (`yq eval`; `CLAUDE_VM_YQ_FLOOR`), while Debian's
+`yq` package is the unrelated Python wrapper (3.4.3), which makes every
+yq-touching assertion fail for a reason that has nothing to do with the
+change.
 
 Borrow the binary from its own published image rather than downloading
 one — same platform as the test container, and no host install:
