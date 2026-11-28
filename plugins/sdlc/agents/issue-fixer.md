@@ -121,7 +121,7 @@ from its issue.
 
    On any non-zero exit of any `git-branch-sync` call in this file,
    other than the exits this file says how to handle, stop and report
-   it, quoting its stderr.
+   the command, its exit and its stderr, quoted.
 
 3. Read the review findings and the owner rulings carefully. Address
    every finding the brief rules in scope, including Low — the review
@@ -202,8 +202,8 @@ from its issue.
     git-branch-sync push --exclude .claude/agent-memory/
     ```
 
-    On a non-zero exit, stop and report the failed push, quoting its
-    stderr, without running step 11.
+    On a non-zero exit, stop and report the command, its exit and its
+    stderr, quoted, without running step 11.
 
 11. End-of-run cleanup — release the branch claim so subsequent
     subagents can check out the same branch. Run this only if your
@@ -309,8 +309,8 @@ is condition 1 there. A ruling whose stop line names any other stop —
 a command and its exit, such as a refused push or another non-zero
 `git-branch-sync` exit, or something else reported instead of a push —
 names the remedy for it: carry it out as the ruling says, under this
-file's rules as any fix is, at the step that runs the command the stop
-line names, or where the stop it describes came.
+file's rules as any fix is, at the point in "Rebasing the branch" where
+the stop the line names came.
 
 ### Merge-readiness briefs
 
