@@ -110,7 +110,8 @@ from its issue.
    round, or names a merge state, is a rebase brief, and "Rebase
    briefs" below says what it asks of you. Steps 3 to 6 are about
    findings: on a rebase brief, the remedy "Rebase briefs" names takes
-   their place, and every other step runs as written, each once.
+   their place, and every other step runs once, as written or as
+   "Rebasing the branch" amends it.
 
 2. Check out the PR branch with the preloaded
    `git-tools:git-branch-sync` skill, which owns every git step of this
