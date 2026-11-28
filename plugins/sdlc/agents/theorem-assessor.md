@@ -208,7 +208,9 @@ COUNT: candidates <n>, adds <m>
   `<n>` is the number of candidate blocks above the `ADDS` line and
   `<m>` the number of add blocks below it. An assessment with no
   candidates and no gaps is the single line
-  `COUNT: candidates 0, adds 0`.
+  `COUNT: candidates 0, adds 0`. The line exists for the `leave` check
+  alone: applying an assessment applies its blocks and takes nothing
+  from the line.
 - `action` is exactly one of the six, and `reason` is one line.
 - A merge is written once, on its lowest id; its partners get no block
   of their own. Every other candidate gets exactly one block.

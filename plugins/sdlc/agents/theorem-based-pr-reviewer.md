@@ -666,12 +666,7 @@ malformed by `agents/theorem-assessor.md` → "Output format" is one you
 ask the assessor to re-emit, as for a malformed generator list.
 
 **Apply every recommendation, with no human step**, as you stage the
-new-records file "Assemble the round's live list" names. You apply the
-assessment's blocks and take nothing from its closing `COUNT:` line;
-one that is the line alone, `COUNT: candidates 0, adds 0`, settles the
-assess stage and adds no theorem, so the round proceeds on its carried
-records.
-You assign
+new-records file "Assemble the round's live list" names. You assign
 every id: those the assessment mints follow the generator's list, in
 the order of its blocks with the `ADDS` blocks last, and the theorems
 minted from adjustment comments follow those. A record the assessment

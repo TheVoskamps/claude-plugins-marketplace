@@ -97,8 +97,7 @@ Under `seed-review: accept-recommended` the recommendations are the
 rulings: the human adopted every one in advance by choosing that value,
 so transcribe each onto the records and assign every id yourself. Ids
 the assessment mints follow the generator's list, in the order of the
-assessment's blocks with the `ADDS` blocks last. Apply its blocks and
-take nothing from its closing `COUNT:` line.
+assessment's blocks with the `ADDS` blocks last.
 
 - an **accept** is the candidate as emitted;
 - a **reject** is `state: retired`, `state-detail: assessor-rejected`,
